@@ -1,0 +1,97 @@
+1️⃣ 后台接口总览（可复用度基于前端显式调用，方法推断为 POST/GET，未在仓库内见到 EPS 元数据，标注“不确定”处需以后端真实 EPS 为准）
+鉴权 / 会话
+POST /dev/admin/base/auth/login（或 /open/login 等）：参数 { username, password }；返回 { userInfo, tokenData{token, refreshToken, expire...} }；可复用：是（登录即发放 token）。
+POST /dev/admin/base/open/loginByEmail：参数 { email, code }（在 login 页使用）；返回同上；可复用：需轻微调整（依赖邮箱验证码逻辑）。
+POST /dev/admin/base/open/refreshToken：参数 { refreshToken }；返回 { token, refreshToken }；可复用：是。
+GET /dev/admin/base/comm/person：无参；返回 BaseSysUserEntity；可复用：是。
+POST /dev/admin/base/comm/logout：无显式参数；可复用：是。
+GET /dev/admin/base/comm/permmenu：返回权限菜单；可复用：谨慎（强绑定 GuDuu 权限体系）。
+用户 / 账号
+POST /dev/admin/base/sys/user/list：参数 { ownerId }；返回用户列表；可复用：是（团队成员）。
+POST /dev/admin/base/sys/user/invitedList：无参；返回邀请列表；可复用：是。
+POST /dev/admin/base/sys/user/openDetail：参数 { name }；返回公开主页用户详情；可复用：是。
+POST /dev/admin/base/sys/user/discordLogin、isNftStacked、isExist、sendResetPasswordCode、resetPassword、additionalInfo：第三方 / 补充信息链路；可复用：可选。
+站点配置
+GET /dev/admin/base/site/info，POST /dev/admin/base/site/save：站点文案/支付/第三方登录配置；可复用：部分（MuuZi 选择最小必要字段）。
+上传
+GET /dev/admin/base/comm/uploadMode（返回上传模式和 OSS 配置）；POST /dev/admin/base/comm/upload（上传文件）；可复用：是。
+桌面 / 工作台
+POST /dev/admin/base/desktop/list 参数 { userId }；GET /info { id }；POST /update { id, member[] }；可复用：是（工作台=桌面）。
+群组 / 成员
+POST /dev/admin/base/group/list 参数 { userId | ids[] }；返回群列表；可复用：是。
+POST /dev/admin/base/group/updateGroupInfo：更新群信息；可复用：是。
+POST /dev/admin/base/groupMember/list 参数 { groupId }；memberList { groupIds[], pageSize, page }；memberDetail { groupId | memberId }；teams、teamsByUserId；allMemberList {}；setTeamMemberRole；可复用：是（成员/Agent 信息中心）。
+好友 / IM
+POST /dev/admin/base/friend/list { userId }：IM 左侧会话列表；可复用：是（群=聊天）。
+POST /dev/admin/base/message/messageList { userId, friendId, type(0私聊/1群聊) }：聊天记录；可复用：是。
+POST /dev/admin/base/message/runWorkflow { ... }：从分享页触发工作流；可复用：需确认 MuuZi 是否保留此玩法。
+外链 / 分享
+POST /dev/admin/base/externalLink/memberInfoByCode { code }；workflowLogInfo { logId }；可复用：是（分享页）。
+个人主页申请
+POST /dev/admin/base/personalPageApplication/submit { ... }：申请个人主页；可复用：是。
+POST /dev/admin/base/shortLink/add { originUrl,... }：生成短链；可复用：是。
+认证配置
+POST /dev/admin/base/auth/list：返回认证模板/配置；可复用：是（成员配置）。
+POST /dev/admin/base/app/all：成员配置包；可复用：是。
+POST /dev/admin/base/appConfig/list { appId }：配置包列表；可复用：是。
+商品 / 订单（goods 服务，命名空间不带 base，按同样规则请求 goods/...）
+GET /dev/goods/info/openList { userId }：公开商品（作品/Workflow 卡片）；可复用：是。
+POST /dev/goods/info/remove { id }；totalView/totalSold/totalEarnedTokens/totalRevenue { userId }；可复用：是。
+POST /dev/goods/order/myOrders { page, pageSize }；mySoldOrders { page, pageSize }；可复用：是。
+（未列出仅限后台运营的 coupon/notify/log/menu 等接口，MuuZi 若无需运营后台可忽略。）
+2️⃣ 核心数据模型 & 字段盘点（基于前端类型与实际使用）
+User（BaseSysUserEntity 推断 + TChatGroupMemberItem 补充）
+id:number, name:string(用户名), nickName:string(昵称), avatar|headImg|string, email, phone, remark, tags:string[], roleIds:number[], inviteCode, invitationShortUrl, serviceCode(个人页嵌入脚本), tokens:number, isVip:number, status:number, language, online, teamId, ownerId, shareLink{link,twitter,...}。
+前端可见：头像/昵称/个人签名/社交链接/作品指标；敏感：email/phone/inviteCode/tokens/roleIds。
+适合 MuuZi：头像/昵称/签名/社交/作品指标/个人页脚本；谨慎：角色/权限、财务字段。
+Avatar / Agent（成员模板 & 群成员）
+模板（TMembersParentConfig）：id,name,avatar,type,parentType,tokens,efficiencyCoefficient,isAsync,config[] {key,type,required,description}, auth[]。用于生成可用的 Agent/成员配置。
+实例（groupMember.memberList 返回）：userId/groupId/config/configPacks/parentType/select options 等；用于渲染群/工作流卡片头像。
+适合 MuuZi：模板+实例的 avatar/name/config；谨慎：内部 parentType 特殊值（如 7001 liblib pack）。
+Group / Workspace（TGroupItem）
+id,name,remark,avatar,userId,type,onwerIds,allocationRatio,key,onBoard,createTime,updateTime,members:number[],position。
+前端可见：名称/头像/简介/onBoard/成员数；适合 MuuZi：是。
+Workflow（以成员=Workflow + TAddTaskParams）
+groupId, memberId, execute { type (once/daily/...), config, params }；消息流 TWorkflowMsg{code,data,msg}、TWorkflowMsgItem{name,type,content,required}。
+前端可见：workflow avatar/name（通过 memberDetail）和运行参数。
+适合 MuuZi：运行/展示型字段；谨慎：调度配置、错误码。
+Personal Page / Homepage
+用户公开信息：nickName, remark, avatar, serviceCode, invitationShortUrl；
+作品（TAddGoodsParams/GoodsInfoEntity 推断）：id,title,subTitle,mainPic,content,price,isDisplay,sortNum,video,typeId,tags[],pics[],type,groupId,workflowId,author,contributors,attachments,isPinned；
+指标（TTotalMetrics）：totalViews,totalPurchases,totalEarned,totalTokens；
+订单（OrderInfoEntity）：payAmount,payStatus,goods{groupId,workflowId}。
+适合 MuuZi：作品列表 + 指标 + 订单摘要。
+Desktop（工作台）：id,name,avatar,member:number[],sort。
+3️⃣ 前后端对接模式
+认证：前端将 Authorization: <token> 写入请求头，语言头 language 控制多语言；token 过期自动用 refreshToken 换新，失败则登出。
+登录态：token/refreshToken/用户信息存本地存储（带过期）；登录成功缓存多账号切换列表。
+请求封装：统一 axios 实例，config.baseUrl + namespace 拼接 URL；响应期望 {code, data, message}，code === 1000 才返回 data。
+进度/错误：NProgress + ElementPlus 消息；401 自动登出。
+多端：路由模式 history/hash 按构建模式切换；未见专门移动端分支（仅个人主页有移动版组件）。
+代理：开发指向 http://47.117.179.35:8001，前缀 /dev//api；WS 走 /socket。
+4️⃣ MuuZi 复用建议
+✅ 可直接复用：登录/刷新、获取个人信息、上传、站点信息、群/成员/桌面、好友列表、消息列表、个人主页公开数据（作品、指标、订单）、短链/分享、认证模板与成员配置、商品统计。
+⚠️ 需抽象/解耦：
+权限/菜单（permmenu、roleIds）与 GuDuu 后台强绑定。
+特殊业务值（如 groupMember parentType=7001 的配置包处理）。
+站点支付/Stripe/支付宝配置如 MuuZi 不用需屏蔽。
+serviceCode 嵌入脚本的安全沙箱。
+❌ 不建议复用：后台运营专用（coupon/notify/log/menu管理）、深度权限操作（sys.menu/department/role 等）。
+💡 MuuZi 最小可用后台集（轻量个人主页 + IM + Agent 展示）：
+鉴权：login/refresh/person/logout。
+用户公开：openDetail、shortLink、invitedList。
+群 & 成员：group.list/updateGroupInfo、groupMember.{memberList,memberDetail,teamsByUserId,allMemberList,setTeamMemberRole}。
+IM：friend.list、message.messageList。
+作品/工作流：goods.info.openList、totalView/totalSold/totalEarnedTokens、goods.order.myOrders/mySoldOrders、message.runWorkflow（若需要触发）。
+上传：uploadMode/upload。
+站点：site.info（用于文案/logo/多语言）。
+5️⃣ 风险与注意事项
+EPS 元数据缺失：未找到 build/cool/eps.json，接口 method/参数/返回以运行时拉取 /admin/base/open/eps 为准；上线前需通过真实后端生成并核对。
+返回码假设：前端固定 code === 1000 成功，其它直接弹错并 reject；后端需保持一致。
+权限假设：多处用 roleIds（6/7/8 判定 team 权限），MuuZi 若角色体系不同需调整。
+Token 策略：依赖本地过期时间判断，后端返回需包含 expire/refreshExpire；否则刷新机制失效。
+语言头：请求默认 language = config.i18n.locale，后端需支持；否则菜单/字典多语言可能异常。
+业务耦合：群成员配置对特定 parentType 做了硬编码（liblib pack）；复用时需确认是否存在对应配置。
+安全：serviceCode 会原样插入 DOM 并执行脚本，需确保来源可信或做沙箱。
+代理前缀：生产/开发前缀不同（/api vs /dev），自定义网关需同步 rewrite 规则，否则会 404。
+若需要完整接口清单，建议运行后端生成 EPS（/admin/base/open/eps）以导出 eps.json/eps.d.ts 后再对照确认。

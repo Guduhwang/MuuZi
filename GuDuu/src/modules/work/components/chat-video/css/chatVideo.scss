@@ -1,0 +1,48 @@
+.chatVideo-player-container {
+  --plyr-color-main: #201f22;
+
+  width: 100%;
+  // 高度将通过props动态设置
+  // height: 500px;
+  // max-height: 600px;
+
+  // 防止容器被内容撑大
+  overflow: hidden;
+  position: relative;
+}
+
+.plyr-container {
+  width: 100%;
+  height: 100%;
+
+  // 确保Plyr播放器填满容器并限制高度
+  .plyr {
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+  }
+}
+
+.chatVideo-player-dialog {
+  padding: 0;
+
+  :deep(.el-dialog__body) {
+    padding: 0;
+  }
+
+  .el-dialog__header {
+    padding: 0;
+  }
+}
+
+.chatVideo-link {
+  width: 100%;
+
+  .el-link__inner {
+    display: inline-block;
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

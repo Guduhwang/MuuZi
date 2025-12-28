@@ -1,0 +1,10 @@
+// Element Plus 自定义样式覆盖
+// 注意：主题色主要通过 element/index.scss 中的 SCSS 变量来设置
+// 这里只添加一些特殊的样式覆盖
+
+.el-dropdown__popper {
+  --el-dropdown-menu-box-shadow: var(--el-box-shadow-light);
+  --el-dropdown-menuItem-hover-fill: rgba(0, 0, 0, 0.05);
+  --el-dropdown-menuItem-hover-color: var(--el-color-primary);
+  --el-dropdown-menu-index: 10;
+}

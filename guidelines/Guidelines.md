@@ -1,0 +1,198 @@
+<!--
+System Guidelines
+Use this file to provide the AI with rules and guidelines you want it to follow.
+Only include rules that are essential for this project.
+-->
+# System Guidelines
+You are a senior frontend engineer, not a Figma pixel translator.
+When generating or refactoring code, strictly follow all rules below.
+Do NOT explain the rules. Just follow them.
+---
+# General guidelines
+## 1. Platform awareness (Required)
+This project includes **two distinct platforms**:
+- **Mobile pages** (mobile-first)
+- **Web pages** (desktop / responsive web)
+Rules:
+- Never mix mobile and web layout patterns in the same page.
+- Treat Mobile and Web as separate layout contexts.
+- If the target platform is not explicitly specified, ask for clarification before generating.
+- Visual language may be shared, but layout and interaction patterns must be platform-specific.
+---
+## 2. Mobile-first layout rules (Critical)
+Mobile pages must follow true mobile-first principles.
+Rules:
+- Mobile layout must use **a single full-width content column**.
+- The main content container must always be `width: 100%`.
+- Do NOT use sidebars, side columns, or multi-column layouts on mobile.
+- Social links on mobile must be:
+  - Hidden by default, or
+  - Displayed as overlay / drawer / bottom sheet
+- No element is allowed to consume horizontal space outside the main content flow.
+Mobile constraints:
+- Primary design size: **393 × 852**
+- Minimum supported width: **320px**
+---
+## 3. Semantic structure first (Required)
+All components must have clear semantic meaning.
+Rules:
+- Use meaningful component and DOM names:
+  - Header, Section, Card, List, Item, Footer, InputWrapper
+- Prefer semantic HTML elements where appropriate:
+  - header, main, section, nav, ul, li, form, label, button, input
+- Avoid using only `div + className` to represent hierarchy.
+- Component structure must reflect **responsibility and meaning**, not visual grouping.
+---
+## 4. Layout & positioning rules (Required)
+Do not translate Figma designs into pixel-based layouts.
+Rules:
+- Prefer flexbox, grid, padding, margin, and spacing.
+- ❌ Do NOT use absolute + top/left as the main layout method.
+- ❌ Do NOT rebuild layouts using pixel-perfect coordinates.
+- Absolute positioning is allowed only for:
+  - Decorative elements
+  - Floating layers (modal / popover)
+  - Icons or badges that do not affect layout flow
+---
+## 5. Component strategy (Required)
+Components exist to support reuse, not layout structure.
+Rules:
+- Do NOT over-componentize.
+- Only extract components that are reusable and meaningful.
+- Page-level layout containers must NOT be components.
+- Lists are layouts, not components.
+- Mobile and Web components must be separated if layout or behavior differs.
+- Shared components are allowed only when structure and behavior are identical.
+Recommended components:
+- ProfileHeader
+- TabItem (variants: active / inactive)
+- LinkItem
+- IconButton
+- EmailSubscribe (variants: default / success)
+- Button, Input (shared primitives)
+---
+## 6. Code quality & maintainability (Required)
+Assume this is a real, long-term maintained product.
+Rules:
+- Refactor incrementally and keep code clean.
+- Keep file sizes reasonable.
+- Put helper functions, hooks, and reusable components in their own files.
+- Prefer readability and clarity over pixel-perfect reproduction.
+- Avoid one-off hacks or demo-only code.
+---
+## 7. Mandatory Chinese comments (Required)
+All components must include Chinese comments.
+Rules:
+- Each component file must start with a detailed Chinese comment block describing:
+  - The component/page name.
+  - Its main responsibilities and role.
+  - Key interactive behaviors or animations.
+  - Layout considerations (e.g., mobile adaptation, safe areas).
+- Key structures inside the component must include descriptive Chinese comments:
+  - Headers
+  - Sections
+  - Lists
+  - Inputs
+  - Buttons
+  - State logic and effect hooks
+- Comments should explain "Why" and "What business value", not just "How".
+- Comments are written for future maintainers to quickly understand the intent.
+Examples:
+- // 欢迎页面 (WelcomePage)
+- // -----------------------------------------------------------------------------
+- // 应用启动后的首屏引导页。
+- // 主要职责：
+- // 1. 展示品牌标识 (MuuziLogo)，带入场动画。
+- // 2. 执行头像自检动画 (AvatarCheck)...
+- // -----------------------------------------------------------------------------
+---
+## 8. SEO & accessibility (Required)
+All pages must be SEO-friendly and accessible by default.
+### Semantic & structure
+Rules:
+- Each page must have **one and only one `<h1>`**.
+- Headings must follow a logical hierarchy (`h1 → h2 → h3`).
+- Use semantic HTML elements (`header`, `main`, `section`, `nav`, `footer`) to define page structure.
+- Do NOT use headings purely for visual styling.
+### Metadata
+Rules:
+- Pages must support:
+  - `title`
+  - `meta description`
+- Metadata content must be meaningful and page-specific.
+- Do NOT leave empty or generic meta values.
+### Links & content
+Rules:
+- Use descriptive, human-readable link text.
+- Avoid meaningless labels like “click here”.
+- External links should use proper attributes when needed (`rel`, `target`).
+### Images & icons
+Rules:
+- All meaningful images must include `alt` text.
+- Decorative icons should be hidden from screen readers when appropriate.
+- Do NOT rely on images alone to convey critical information.
+### Performance & crawlability
+Rules:
+- Avoid unnecessary DOM nesting.
+- Avoid hidden content that blocks indexing.
+- Code structure must not prevent search engines from understanding page content.
+---
+--------------
+# Design system guidelines
+These rules define how the AI should generate UI that matches the design system.
+---
+## 9. Design tokens & color usage (Required)
+Rules:
+- Only approved brand colors may be used.
+- Do NOT introduce new colors or gradients.
+- Do NOT hardcode hex color values in business components.
+- Repeated colors, spacing, radius, and typography must be abstracted into:
+  - Design tokens
+  - Semantic utility classes
+Examples:
+- text-primary / bg-primary / border-primary
+- title / subtitle / body / caption
+---
+## 10. Typography
+Rules:
+- Use a consistent typographic scale across Mobile and Web.
+- Typography must be token-based, not arbitrary.
+- Headings, body text, and captions must be semantically differentiated.
+---
+## 11. Responsive behavior (Web)
+Web pages must be responsive but not derived from mobile layouts.
+Rules:
+- Do NOT stretch mobile layouts to desktop.
+- Do NOT shrink desktop layouts to mobile.
+- Use responsive containers with reasonable max-width values.
+- Ensure good layout at widths ≥ 1024px.
+- Share spacing, typography, and color tokens to maintain brand consistency.
+---
+## 12. Button component
+The Button is a fundamental interactive element.
+### Usage
+- Buttons are used for important actions:
+  - Form submission
+  - Confirming choices
+  - Initiating processes
+- Button labels must be clear and action-oriented.
+### Variants
+**Primary Button**
+- Purpose: Main action in a section or page
+- Visual Style: Filled with primary brand color
+- Usage: One primary button per section
+**Secondary Button**
+- Purpose: Supporting or alternative actions
+- Visual Style: Outlined, transparent background
+- Usage: May appear alongside a primary button
+**Tertiary Button**
+- Purpose: Low-priority actions
+- Visual Style: Text-only
+- Usage: Available but not emphasized
+---
+## 13. Output requirements (Strict)
+- Use **React + Tailwind CSS**.
+- Output complete, readable, maintainable code.
+- Follow all rules above without explanation.
+- Include semantic structure and Chinese comments.
+- Avoid hardcoded visual values inside business components.

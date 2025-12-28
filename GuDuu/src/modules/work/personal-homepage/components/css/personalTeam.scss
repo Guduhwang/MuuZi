@@ -1,0 +1,583 @@
+.personalHomepage-team {
+  padding: 1px;
+  .team-btn {
+    background: #ffffff;
+    border: 1px solid #262626;
+    border-radius: 24px !important;
+    height: 32px !important;
+    padding: 10px 16px !important;
+    width: 100px;
+    text-align: center;
+    font-size: 16px !important;
+    font-weight: 500 !important;
+    line-height: 24px !important;
+  }
+  position: relative;
+  width: 100%;
+
+  .personalHomepage-team-item {
+    position: relative;
+    padding: 19px;
+    border-radius: 20px;
+    // background: #ffffff;
+    border: 1px solid #e6e6e6;
+    margin-bottom: 20px;
+
+    &.account-overview {
+      height: 480px;
+    }
+
+    &.account-balance {
+      height: 200px;
+    }
+
+    &.commission-tier {
+      height: 200px;
+    }
+
+    &.promotion-tools {
+      height: 200px;
+    }
+
+    .item-head {
+      height: auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 16px;
+      padding-bottom: 0;
+      border-bottom: none;
+
+      .item-head-title {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        position: relative;
+
+        &::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 2px;
+          width: 120px;
+          height: 10px;
+          background: linear-gradient(to right, #fa9819, rgba(250, 152, 25, 0));
+          border-radius: 50px;
+          opacity: 0.5;
+        }
+
+        .item-head-title-text {
+          font-size: 16px;
+          font-weight: 600;
+          line-height: 24px;
+          color: #262626;
+          position: relative;
+          z-index: 1;
+        }
+
+        .item-head-title-subtext {
+          font-size: 12px;
+          font-weight: 400;
+          line-height: 20px;
+          color: #999999;
+          margin-left: 16px;
+        }
+      }
+
+      .item-head-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+    }
+
+    .item-body {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      z-index: 1;
+    }
+  }
+}
+.info-item {
+  .info-item-title {
+    font-size: 12px;
+    color: #999;
+  }
+  .info-item-value {
+    font-size: 30px;
+    font-weight: 600;
+  }
+  .info-item-value-unit {
+    font-size: 12px;
+    font-weight: 600;
+  }
+}
+
+// Account Overview 样式
+.account-overview {
+  .metrics-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+
+    .metric-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+
+      .metric-value {
+        font-size: 28px;
+        font-weight: 700;
+        line-height: 42px;
+        color: #262626;
+        text-shadow: 0px 2px 0px #ffffff;
+      }
+
+      .metric-value-with-unit {
+        display: flex;
+        align-items: flex-end;
+        gap: 4px;
+        margin-bottom: 4px;
+
+        .value {
+          font-size: 28px;
+          font-weight: 700;
+          line-height: 42px;
+          color: #262626;
+        }
+
+        .unit {
+          font-size: 14px;
+          font-weight: 600;
+          line-height: 22px;
+          color: #262626;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          height: 32px;
+        }
+      }
+
+      .metric-label {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 22px;
+        color: #737373;
+        text-align: center;
+      }
+    }
+
+    .metric-divider {
+      width: 0;
+      height: 56px;
+      border-left: 1px solid #e6e6e6;
+      flex-shrink: 0;
+    }
+  }
+
+  .chart-container {
+    padding: 20px 20px 40px;
+    position: relative;
+
+    .chart-legend {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 10px;
+
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        font-weight: 400;
+        color: #595959;
+
+        .legend-dot {
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+
+          &.sign-ups {
+            background-color: #22c55e;
+          }
+
+          &.first-deposits {
+            background-color: #fa9819;
+          }
+        }
+      }
+    }
+
+    .chart-placeholder {
+      height: 198px;
+      width: 100%;
+      padding: 20px 20px 40px;
+
+      :deep(.echarts) {
+        width: 100%;
+        height: 100%;
+      }
+    }
+  }
+}
+
+// Account Balance 样式
+.account-balance {
+  background: url('/@/assets/imgs/personal/left_lines.png') no-repeat center center;
+  // background-size: 100% 100%;
+  background-position: 364px;
+  .gold-style {
+    width: 120.514px;
+    height: 75.697px;
+    position: absolute;
+    right: 12px;
+    bottom: 11px;
+    img {
+      width: 100%;
+      height: 100%;
+    }
+  }
+  .balance-main {
+    margin-bottom: 16px;
+
+    .balance-amount {
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      margin-bottom: 8px;
+
+      .balance-value {
+        font-size: 28px;
+        font-weight: 700;
+        line-height: 42px;
+        color: #262626;
+        text-shadow: 0px 2px 0px #ffffff;
+      }
+
+      .balance-unit {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 22px;
+        color: #262626;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        height: 32px;
+      }
+    }
+
+    .balance-pending {
+      font-size: 16px;
+      font-weight: 600;
+      line-height: 24px;
+      color: #595959;
+    }
+  }
+
+  .balance-list {
+    .balance-list-title {
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 22px;
+      color: #595959;
+      text-align: right;
+      margin-top: 18px;
+      margin-bottom: 12px;
+    }
+
+    .balance-item {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 4px;
+      margin-bottom: 10px;
+
+      .balance-item-icon {
+        width: 20px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .balance-item-text {
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 20px;
+        color: #262626;
+      }
+    }
+  }
+
+  .details-btn {
+    background: #ffffff;
+    border: 1px solid #262626;
+    border-radius: 24px;
+    height: 32px;
+    padding: 10px 16px;
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 24px;
+    color: #262626;
+
+    &:hover {
+      background: #f5f5f5;
+    }
+  }
+}
+
+// Promotion Tools 样式
+.promotion-tools {
+  .promotion-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    font-size: 16px;
+    line-height: 24px;
+
+    &.promotion-item-row {
+      display: flex;
+      // justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .promotion-label {
+      font-size: 16px;
+      font-weight: 500;
+      color: #737373;
+    }
+
+    .promotion-value {
+      font-size: 16px;
+      font-weight: 600;
+      color: #262626;
+    }
+
+    .copy-link {
+      font-size: 16px;
+      font-weight: 500;
+      height: 24px !important;
+      line-height: 24px !important;
+      color: #fa9819 !important;
+      padding: 0;
+    }
+  }
+
+  .manage-btn {
+    background: #ffffff;
+    border: 1px solid #262626;
+    border-radius: 24px;
+    height: 32px;
+    padding: 10px 16px;
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 24px;
+    color: #262626;
+
+    &:hover {
+      background: #f5f5f5;
+    }
+  }
+}
+
+// Commission Tier 样式
+.commission-tier {
+  position: relative;
+  .percent-style {
+    width: 65.875px;
+    height: 67.495px;
+    position: absolute;
+    left: 18px;
+    bottom: 16px;
+    img {
+      width: 100%;
+      height: 100%;
+    }
+  }
+  background: url('/@/assets/imgs/personal/right_lines.png') no-repeat center center;
+  background-position: 0px;
+  .commission-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-end;
+    width: 100%;
+    margin: 0 auto;
+    margin-top: 20px;
+  }
+
+  .commission-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+
+    .commission-label {
+      width: 230px;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 22px;
+      color: #262626;
+      text-shadow: 0px 2px 0px #ffffff;
+    }
+
+    .commission-input {
+      width: 120px;
+
+      :deep(.el-input__wrapper) {
+        background: #ffffff;
+        border: 1px solid #e6e6e6;
+        border-radius: 8px;
+        height: 40px;
+        padding: 0 8px;
+      }
+
+      :deep(.el-input__inner) {
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 22px;
+        color: #262626;
+        text-align: center;
+      }
+    }
+
+    .commission-percent {
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 22px;
+      color: #262626;
+      text-shadow: 0px 2px 0px #ffffff;
+    }
+  }
+
+  .save-btn {
+    background: #ffffff;
+    border: 1px solid #262626;
+    border-radius: 24px;
+    height: 32px;
+    padding: 10px 16px;
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 24px;
+    color: #262626;
+
+    &:hover {
+      background: #f5f5f5;
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+}
+.info-status-item {
+  text-align: center;
+  .info-status-item-title {
+    display: flex;
+    align-items: center;
+    color: #999;
+  }
+  .status-icon {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 8px;
+    &.primary {
+      background-color: #3b82f6;
+    }
+    &.success {
+      background-color: #22c55e;
+    }
+    &.danger {
+      background-color: #ef4444;
+    }
+  }
+  .status-text {
+    font-size: 14px;
+  }
+  .info-status-item-value {
+    font-size: 24px;
+    font-weight: 600;
+  }
+}
+.balance-list {
+  z-index: 1;
+  .balance-item {
+    font-size: 14px;
+    color: #262626;
+    display: flex;
+    align-items: center;
+    .balance-item-icon {
+      width: 20px;
+      height: 20px;
+      img {
+        width: 100%;
+        height: 100%;
+      }
+    }
+  }
+}
+
+// Recent Signups 表格样式
+.personalHomepage-team-item {
+  :deep(.cl-table) {
+    .el-table {
+      border-radius: 8px;
+      overflow: hidden;
+
+      .el-table__header {
+        th {
+          background: #f5f5f5;
+          border: none;
+          padding: 10px 20px;
+          font-size: 16px;
+          font-weight: 500;
+          line-height: 24px;
+          color: #262626;
+          text-transform: capitalize;
+        }
+      }
+
+      .el-table__body {
+        td {
+          border: none;
+          padding: 10px 20px;
+          font-size: 14px;
+          color: #262626;
+        }
+      }
+
+      .el-table__empty-block {
+        .el-table__empty-text {
+          font-size: 12px;
+          color: #999999;
+        }
+      }
+    }
+  }
+}
+/* 添加遮罩样式 */
+.personalHomepage-mask {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.8);
+  z-index: 1000;
+  cursor: pointer;
+  .btn-pro-member {
+    position: absolute;
+    left: 46%;
+    top: 10%;
+    transform: translateX(-50%);
+  }
+}

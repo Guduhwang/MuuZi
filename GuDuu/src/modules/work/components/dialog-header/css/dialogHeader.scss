@@ -1,0 +1,42 @@
+.dialog-header-wrap {
+  display: flex;
+  align-items: center;
+  // padding: 10px 16px;
+
+  .dialog-header__title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    flex: 1;
+  }
+
+  &.small {
+    padding: 10px 10px;
+
+    .dialog-header-close-wrap {
+      width: 18px;
+      height: 18px;
+      font-size: 12px;
+    }
+
+    .dialog-header__title {
+      font-size: 12px;
+    }
+  }
+}
+
+.dialog-header-close-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 22px;
+
+  &:hover {
+    background: #0000000d;
+  }
+}

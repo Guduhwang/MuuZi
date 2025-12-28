@@ -1,0 +1,23 @@
+.dialogWrap-container {
+  --plyr-color-main: #201f22;
+
+  width: 100%;
+}
+
+.dialogWrap-dialog {
+  padding: 0;
+  border-radius: 12px;
+
+  :deep(.el-dialog__body) {
+    padding: 0;
+  }
+
+  .el-dialog__header {
+    padding: 0;
+  }
+
+  .el-dialog__footer {
+    padding: 0;
+    padding-top: 16px;
+  }
+}

@@ -1,0 +1,31 @@
+.chatInputButton-wrap {
+}
+
+.chatInputButton-btn {
+  display: inline-block;
+  align-items: center;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid #dcdfe6;
+  background-color: #ecf5ff;
+  padding: 4px 8px;
+  color: #409eff;
+  font-size: 14px;
+  cursor: pointer;
+
+  & > span {
+    display: inline-block;
+    align-items: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100px;
+  }
+}
+
+.chatInputButton-btn-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
