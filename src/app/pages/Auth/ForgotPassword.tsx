@@ -5,7 +5,12 @@
 // 1. 第一步：输入注册邮箱，请求发送重置验证码。
 // 2. 第二步：输入验证码验证身份 (VerificationDialog)。
 // 3. 第三步：设置并确认新密码。
-// 4. 完成重置后引导用户重新登录。
+// 4. 完成重置后直接登录，进入首页。
+//
+// 布局考虑：
+// - 移动端优先：采用单列全宽布局，适应 393x852 设计稿。
+// - 语义化结构：使用 main, section, form, label 等元素。
+// - 交互体验：包含密码强度校验、Loading 状态、弹窗验证。
 // -----------------------------------------------------------------------------
 import { useState } from 'react';
 import { AuthHeader } from '../../components/Auth/AuthHeader';
@@ -17,8 +22,9 @@ import { Dialog } from "../../components/ui/dialog";
 import { Eye, EyeOff } from "lucide-react";
 import { setTokens } from "../../lib/tokenManager";
 
+// 右箭头图标：用于主操作按钮
 const ArrowRightIcon = () => (
-    <svg className="size-[16px]" fill="none" preserveAspectRatio="none" viewBox="0 0 16 16">
+    <svg className="size-[16px]" fill="none" preserveAspectRatio="none" viewBox="0 0 16 16" aria-hidden="true">
          <path d="M3.33333 8H12.6667" stroke="black" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.33333" />
          <path d={socialSvgPaths.p1d405500} stroke="black" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.33333" />
     </svg>
@@ -31,6 +37,9 @@ interface ForgotPasswordPageProps {
 }
 
 export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: ForgotPasswordPageProps) {
+  // -----------------------------------------------------------------------------
+  // 状态定义 (States)
+  // -----------------------------------------------------------------------------
   const [step, setStep] = useState<'email' | 'reset'>('email');
   const [email, setEmail] = useState(initialEmail);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -48,7 +57,11 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
   const [passwordError, setPasswordError] = useState("");
   const [, setLoading] = useState(false);
 
-  // 密码强度校验（与 ProfileSetup 复刻）
+  // -----------------------------------------------------------------------------
+  // 业务逻辑与校验 (Logic & Validation)
+  // -----------------------------------------------------------------------------
+
+  // 密码强度校验逻辑
   const validatePassword = (pwd: string) => {
     if (/\s/.test(pwd)) {
       return { valid: false, strength: 'weak' as const, error: "No spaces allowed" };
@@ -94,7 +107,11 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
     setPasswordError(result.valid ? "" : result.error);
   };
 
-  // 1. 发送验证码
+  // -----------------------------------------------------------------------------
+  // 接口对接 (API Calls)
+  // -----------------------------------------------------------------------------
+
+  // 1. 发送重置验证码
   const handleSendCode = async () => {
     if (email) {
       try {
@@ -103,36 +120,28 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
         setIsDialogBusy(true);
         setDialogButtonText("Sending...");
         setDialogDescription(`Sending code to ${email.trim()}...`);
-        console.log("Sending code to:", email);
         
-        // 按照用户指示，使用注册的发送验证码接口
-        // 尝试不传 invitation，或者传空
+        // 使用通用的发送验证码接口
         const response = await fetch('/api/admin/base/open/sendCode', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: email.trim() }), // 尝试不带 invitation
+          body: JSON.stringify({ email: email.trim() }),
         });
 
-        console.log("Send code status:", response.status);
-
         if (!response.ok) {
-           const errText = await response.text();
-           console.error("Send code failed response:", errText);
            throw new Error(`Failed to send code: ${response.status}`);
         }
         
         const text = await response.text();
         const data = text ? JSON.parse(text) : {};
-        console.log("Send code response data:", data);
         
         if (!text || data.code === 1000) {
            setDialogDescription(`We've sent a code to ${email.trim()}.`);
            setDialogButtonText("Verify Code");
            setIsDialogBusy(false);
         } else {
-           // 如果因为缺少邀请码失败，尝试传一个默认值（虽然不太可能，但为了容错）
+           // 容错：如果后端需要 invitation
            if (data.message?.includes("invitation")) {
-               console.log("Retrying with invitation='reset'...");
                const retryResponse = await fetch('/api/admin/base/open/sendCode', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -150,7 +159,6 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
            setIsDialogOpen(false);
         }
       } catch (error: any) {
-        console.error("Send code error:", error);
         alert(error.message || "Network error");
         setIsDialogOpen(false);
       } finally {
@@ -161,7 +169,7 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
     }
   };
 
-  // 2. 验证验证码
+  // 2. 验证收到的验证码
   const handleVerify = async () => {
      if (otpValue.length !== 6) return;
      
@@ -169,9 +177,7 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
        setLoading(true);
        setIsDialogBusy(true);
        setDialogButtonText("Verifying...");
-       console.log("Verifying code:", otpValue);
        
-       // 调用验证码校验接口
        const response = await fetch('/api/admin/base/open/verifyCode', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
@@ -179,18 +185,15 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
        });
 
        const data = await response.json();
-       console.log("Verify response:", data);
 
        if (data.code === 1000) {
-         // 验证成功
-          setVerifiedCode(otpValue); // 保存已验证的验证码，用于 resetPassword
+          setVerifiedCode(otpValue);
          setIsDialogOpen(false);
          setStep('reset');
        } else {
          alert(data.message || "Invalid verification code");
        }
      } catch (error: any) {
-       console.error("Verify code error:", error);
        alert(error.message || "Verification failed");
      } finally {
        setLoading(false);
@@ -199,9 +202,8 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
      }
   };
 
-  // 3. 重置密码
-  const handleLogin = async () => {
-      // 简单校验
+  // 3. 执行重置密码并自动登录
+  const handleResetAndLogin = async () => {
       if (newPassword && confirmPassword) {
           if (!verifiedCode) {
             alert("Please verify the code first.");
@@ -223,7 +225,7 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
           try {
             setLoading(true);
             
-            // 1) 重置密码（对接 API_RULES resetPassword）
+            // 步骤 1: 重置密码
             const resetResponse = await fetch('/api/admin/base/sys/user/resetPassword', {
                 method: 'POST',
                 headers: {
@@ -247,7 +249,7 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
               throw new Error(resetData.message || 'Failed to reset password');
             }
 
-            // 2) 重置成功后直接登录，进入首页
+            // 步骤 2: 重置成功后执行登录
             const loginResponse = await fetch('/api/admin/base/open/loginByEmail', {
               method: 'POST',
               headers: {
@@ -267,7 +269,7 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
               throw new Error(loginData?.message || 'Login failed after reset');
             }
 
-            // 存储 token，跳转首页
+            // 存储认证令牌并跳转
             setTokens({
               token: loginData.data?.token,
               refreshToken: loginData.data?.refreshToken,
@@ -277,9 +279,8 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
             });
 
             alert("Password reset successfully. Redirecting to Home...");
-            onLogin?.(); // 由上层路由跳转到 Home
+            onLogin?.();
           } catch (error: any) {
-            console.error("Reset password error:", error);
             alert(error.message || "Network error");
           } finally {
             setLoading(false);
@@ -289,12 +290,12 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
 
   return (
     <main className="min-h-screen min-h-[100dvh] supports-[height:100dvh]:h-[100dvh] w-full bg-app-dark relative overflow-hidden flex flex-col px-[25px] text-white">
-      {/* 顶部 Header：包含返回按钮 */}
+      {/* 顶部导航区 (Header Section) */}
       <AuthHeader onBack={step === 'email' ? onBack : () => setStep('email')} />
 
       {step === 'email' ? (
         <>
-            {/* 页面标题区 */}
+            {/* 第一步：邮箱输入标题区 (Email Step Header) */}
             <section className="mt-[40px] mb-[20px]">
                 <h1 className="text-display font-semibold">
                 <span className="text-brand-primary block">Forgot</span>
@@ -305,7 +306,7 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
                 </p>
             </section>
 
-            {/* 表单区域 */}
+            {/* 邮箱输入表单 (Email Form) */}
             <form 
                 className="flex flex-col"
                 onSubmit={(e) => {
@@ -313,23 +314,28 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
                     if (email) handleSendCode();
                 }}
             >
-                {/* 邮箱输入框 */}
-                <Input 
-                    type="email"
-                    placeholder="Enter your email"
-                    containerClassName="mb-[30px]"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoFocus
-                />
+                <div className="flex flex-col mb-[30px]">
+                    <label htmlFor="email-input" className="sr-only">Email Address</label>
+                    <Input 
+                        id="email-input"
+                        type="email"
+                        placeholder="Enter your email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        autoFocus
+                        required
+                        aria-required="true"
+                    />
+                </div>
 
-                {/* 发送按钮 */}
+                {/* 发送验证码按钮 (Submit Button) */}
                 <Button 
                     variant="primary"
                     className="mb-[15px] shadow-lg"
                     icon={<ArrowRightIcon />}
                     disabled={!email}
                     type="submit"
+                    aria-label="Send verification code to your email"
                 >
                     Send verification code
                 </Button>
@@ -337,7 +343,7 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
         </>
       ) : (
         <>
-            {/* 重置密码标题区 */}
+            {/* 第二步：重置密码标题区 (Reset Step Header) */}
             <section className="mt-[40px] mb-[20px]">
                 <h1 className="text-display font-semibold">
                 <span className="text-brand-primary block">Reset</span>
@@ -348,26 +354,32 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
                 </p>
             </section>
 
-            {/* 重置表单区域 */}
+            {/* 重置密码表单 (Reset Form) */}
             <form
                 className="flex flex-col"
                 onSubmit={(e) => {
                     e.preventDefault();
-                    handleLogin();
+                    handleResetAndLogin();
                 }}
             >
-                {/* 账号输入框 (只读显示) */}
-                <Input 
-                    type="email"
-                    value={email}
-                    readOnly
-                    containerClassName="mb-[15px] opacity-60"
-                />
+                {/* 只读邮箱显示 (Read-only Email) */}
+                <div className="mb-[15px] opacity-60">
+                    <label htmlFor="readonly-email" className="sr-only">Your Email</label>
+                    <Input 
+                        id="readonly-email"
+                        type="email"
+                        value={email}
+                        readOnly
+                        aria-readonly="true"
+                    />
+                </div>
 
-                {/* 新密码输入框 */}
+                {/* 新密码输入 (New Password Input) */}
                 <div className="relative mb-[30px]">
                   <div className="relative">
+                    <label htmlFor="new-password" className="sr-only">New Password</label>
                     <Input 
+                        id="new-password"
                         type={showPassword ? "text" : "password"}
                         placeholder="New Password"
                         containerClassName={`mb-0 pr-[50px] transition-colors ${
@@ -379,7 +391,9 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
                         value={newPassword}
                         onChange={(e) => handlePasswordChange(e.target.value)}
                         autoFocus
+                        required
                     />
+                    {/* 切换密码显示按钮 (Toggle Visibility) */}
                     <button
                       type="button"
                       className="absolute right-[20px] top-1/2 -translate-y-1/2 text-[#b7b7bc] hover:text-white transition-colors"
@@ -390,8 +404,9 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
                     </button>
                   </div>
 
+                  {/* 密码强度指示器 (Password Strength Indicator) */}
                   {newPassword && (
-                      <div className="flex flex-col gap-1.5 mt-2 w-[60%] mx-auto">
+                      <div className="flex flex-col gap-1.5 mt-2 w-[60%] mx-auto" aria-live="polite">
                           <div className="flex gap-1 h-1 w-full">
                               <div className={`flex-1 rounded-full transition-all duration-300 ${
                                   passwordStrength ? (
@@ -427,14 +442,16 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
                           </div>
                       </div>
                   )}
-                  {passwordError && <span className="text-red-500 text-xs px-1 mt-1 block text-center">{passwordError}</span>}
+                  {passwordError && <span className="text-red-500 text-xs px-1 mt-1 block text-center" role="alert">{passwordError}</span>}
                 </div>
 
-                {/* 确认密码输入框 */}
+                {/* 确认密码输入 (Confirm Password Input) */}
                 {newPassword && (
                   <div className="relative mb-[30px] animate-in fade-in slide-in-from-top-2 duration-300">
                     <div className="relative">
+                      <label htmlFor="confirm-password" className="sr-only">Confirm Password</label>
                       <Input 
+                          id="confirm-password"
                           type={showConfirmPassword ? "text" : "password"}
                           placeholder="Confirm Password"
                           containerClassName={`mb-0 pr-[50px] transition-colors ${
@@ -442,6 +459,7 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
                           }`}
                           value={confirmPassword}
                           onChange={(e) => setConfirmPassword(e.target.value)}
+                          required
                       />
                       <button
                           type="button"
@@ -453,12 +471,12 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
                       </button>
                     </div>
                     {confirmPassword && newPassword !== confirmPassword && (
-                        <span className="text-red-500 text-xs px-1 mt-1 block text-center">Passwords do not match</span>
+                        <span className="text-red-500 text-xs px-1 mt-1 block text-center" role="alert">Passwords do not match</span>
                     )}
                   </div>
                 )}
 
-                {/* 登录按钮 */}
+                {/* 重置并登录按钮 (Submit Button) */}
                 <Button 
                     variant="primary"
                     className="mb-[15px] shadow-lg"
@@ -477,7 +495,7 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
         </>
       )}
 
-      {/* 验证码弹窗 */}
+      {/* 验证码校验弹窗 (OTP Dialog) */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <VerificationDialogContent 
           otpValue={otpValue}

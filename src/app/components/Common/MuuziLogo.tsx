@@ -11,6 +11,7 @@ interface MuuziLogoProps {
   title?: string;        // 自定义标题
   icon?: React.ReactNode; // 自定义图标
   align?: 'center' | 'left'; // 对齐方式
+  as?: 'h1' | 'h2' | 'div'; // 允许自定义标题标签，防止 H1 冲突
 }
 
 export function MuuziLogo({ 
@@ -18,7 +19,8 @@ export function MuuziLogo({
   className = "", 
   title = "MuuZi", 
   icon = "🏡",
-  align = 'center'
+  align = 'center',
+  as: Component = 'h1'
 }: MuuziLogoProps) {
   const alignClass = align === 'left' ? 'items-start' : 'items-center';
   const textClass = align === 'left' ? 'text-left' : 'text-center';
@@ -30,9 +32,9 @@ export function MuuziLogo({
   return (
     <div className={`flex flex-col ${alignClass} ${className}`}>
       {/* 品牌标题 */}
-      <h1 className={`text-white text-[40px] leading-none font-normal ${textClass} whitespace-nowrap font-['Poppins']`}>
+      <Component className={`text-white text-[40px] leading-none font-normal ${textClass} whitespace-nowrap font-['Poppins']`}>
         <span className="mr-2">{icon}</span>{title}
-      </h1>
+      </Component>
       
       {/* 装饰下划线 SVG */}
       <div className="w-[198px] h-[14px] mt-2">
