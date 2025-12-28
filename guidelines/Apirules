@@ -1,0 +1,123 @@
+# MuuZi APP 后端对接文档
+
+本文档旨在整理 MuuZi 项目与 GuDuu 后端接口的对接规范、核心模型及复用策略。
+
+---
+
+## 一、 接口总览 (API Overview)
+
+> **注**：开发环境基础路径为 `/dev/admin/base`，生产环境为 `/api/admin/base`。下表以 `/dev/admin/base` 为例。
+
+### 1. 鉴权与会话 (Auth & Session)
+| 接口路径 | 方法 | 参数说明 | 复用建议 |
+| :--- | :--- | :--- | :--- |
+| `/auth/login` | POST | `{ username, password }` | **是**（基础登录） |
+| `/open/loginByEmail` | POST | `{ email, code }` | **是**（邮箱登录） |
+| `/open/refreshToken` | GET | `?refreshToken=...` | **强制**（Token 续期） |
+| `/comm/person` | GET | 无 | **核心**（获取当前用户信息） |
+| `/comm/logout` | POST | 无 | **是**（登出） |
+| `/comm/permmenu` | GET | 无 | **谨慎**（强绑定 GuDuu 权限体系） |
+
+### 2. 用户与账号 (User & Account)
+| 接口路径 | 方法 | 功能描述 |
+| :--- | :--- | :--- |
+| `/sys/user/list` | POST | 获取团队成员列表（参数 `ownerId`） |
+| `/sys/user/invitedList` | POST | 获取邀请人列表 |
+| `/sys/user/openDetail` | POST | 获取用户公开详情（参数 `name`） |
+| `/sys/user/isExist` | POST | 检查邮箱/昵称是否存在 |
+| `/sys/user/resetPassword`| POST | 重置密码（配合验证码） |
+
+### 3. 工作台与群组 (Workspace & Group)
+| 接口路径 | 方法 | 功能描述 |
+| :--- | :--- | :--- |
+| `/desktop/list` | POST | 获取工作台桌面列表 |
+| `/desktop/update` | POST | 更新桌面排序或成员信息 |
+| `/group/list` | POST | 获取群组/空间列表 |
+| `/group/updateGroupInfo` | POST | 更新群组基础信息 |
+| `/groupMember/list` | POST | 获取群成员/Agent 列表（参数 `groupId`） |
+| `/groupMember/memberDetail`| POST | 获取成员详细配置信息 |
+
+### 4. 社交与消息 (Social & IM)
+| 接口路径 | 方法 | 功能描述 |
+| :--- | :--- | :--- |
+| `/friend/list` | POST | 获取 IM 会话列表（私聊/群组） |
+| `/message/messageList` | POST | 获取聊天历史记录 |
+| `/message/runWorkflow` | POST | 触发工作流（Workflow 执行核心） |
+| `/externalLink/memberInfoByCode` | POST | 通过分享码获取成员信息 |
+
+### 5. 商品与订单 (Goods & Order)
+> **注**：此模块命名空间为 `/admin/goods`，不带 `base`。
+
+| 接口路径 | 方法 | 功能描述 |
+| :--- | :--- | :--- |
+| `/info/openList` | GET | 获取公开作品/Workflow 卡片列表 |
+| `/info/totalView` | POST | 获取作品总浏览/销量/收益指标 |
+| `/order/myOrders` | POST | 获取购买的订单记录 |
+| `/order/mySoldOrders` | POST | 获取售出的订单记录 |
+
+---
+
+## 二、 核心数据模型 (Core Models)
+
+### 1. 用户模型 (User)
+*   **常用字段**：`id`, `nickName`, `avatar`, `remark` (签名), `serviceCode` (个人页脚本), `shareLink` (社交链接)。
+*   **敏感字段**：`email`, `phone`, `tokens`, `roleIds` (需谨慎处理权限逻辑)。
+*   **建议**：MuuZi 应侧重展示用户作品指标、社交链接和个人主页配置。
+
+### 2. 成员/智能体 (Avatar / Agent)
+*   **模板 (TMembersParentConfig)**：定义 Agent 的基础能力、图标和配置项。
+*   **实例 (GroupMember)**：具体的 Agent 运行实例，包含特定配置包 (`configPacks`)。
+*   **注意**：部分配置（如 `parentType=7001`）涉及硬编码逻辑，复用时需对齐。
+
+### 3. 作品与工作流 (Goods & Workflow)
+*   **作品 (Goods)**：包含标题、封面图、价格、关联的 `workflowId` 等。
+*   **工作流运行**：通过 `params` (Base64 编码的 JSON) 驱动，结果通过 `TWorkflowMsg` 结构反馈。
+
+---
+
+## 三、 对接模式规范 (Integration Norms)
+
+1.  **认证机制 (Auth)**：
+    *   Header 必须携带 `Authorization: <token>`。
+    *   必须携带 `language` 头（取值如 `en`, `zh-CN`），用于后端国际化字典。
+2.  **响应判定 (Response)**：
+    *   统一成功标识：`code === 1000`。
+    *   401 错误应自动触发登出逻辑并清除本地 Token。
+3.  **开发环境 (Proxy)**：
+    *   代理地址：`http://47.117.179.35:8001`。
+    *   WebSocket 地址：`/socket`。
+4.  **文件处理**：
+    *   优先调用 `/comm/uploadMode` 获取 OSS 配置（本地或云端）。
+    *   头像更新后建议在 URL 后追加 `?t={timestamp}` 以强制浏览器刷新。
+
+---
+
+## 四、 复用建议策略 (Reuse Strategy)
+
+### ✅ 直接复用 (Direct Reuse)
+*   用户登录、注册、Token 刷新逻辑。
+*   文件上传机制（OSS 签名/直传）。
+*   群组、成员、桌面（工作台）的增删改查。
+*   IM 消息流与历史记录。
+*   个人主页公开数据（作品列表、收益指标）。
+
+### ⚠️ 适配与抽象 (Need Adaptation)
+*   **权限体系**：GuDuu 的 `permmenu` 和 `roleIds` 较为复杂，MuuZi 建议做简化处理。
+*   **支付配置**：`site/info` 中包含 Stripe/支付宝配置，若 MuuZi 不涉及交易则需屏蔽。
+*   **安全沙箱**：`serviceCode` 会动态插入 DOM，需确保来源可信或增加沙箱保护。
+
+### ❌ 不建议复用 (Do Not Reuse)
+*   后台运营管理类接口（优惠券生成、系统日志、菜单管理）。
+*   深度耦合 GuDuu 业务逻辑的特殊 ParentType 配置。
+
+---
+
+## 五、 风险与风险点 (Risks & Points)
+
+1.  **元数据依赖**：本项目未发现静态 `eps.json`。**强烈建议**在上线前运行后端，通过 `/admin/base/open/eps` 拉取最新元数据以导出 `eps.d.ts` 类型定义。
+2.  **Token 续期**：必须严格依赖后端返回的 `expire` 时间。如果本地计算错误，可能导致请求频繁被截断。
+3.  **多语言同步**：若前端 `i18n` 语言与请求头 `language` 不一致，会导致后端返回的枚举字典与前端 UI 错位。
+4.  **硬编码逻辑**：原系统在群成员处理处对 `liblib pack` 等做了硬编码，复用时需确认 MuuZi 是否需要这些特殊业务包。
+
+---
+*若需要更详细的特定接口参数定义，请参阅 `guidelines/API接口整理.md`。*

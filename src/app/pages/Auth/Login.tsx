@@ -1,13 +1,19 @@
 // 登录页面 (LoginPage)
 // -----------------------------------------------------------------------------
-// 已注册用户的入口页面。
+// 该页面是已注册用户的核心入口。
+// 
 // 主要职责：
-// 1. 提供邮箱登录功能（输入邮箱后自动显示密码框）。
-// 2. 支持第三方社交账号快捷登录 (Google, Apple)。
-// 3. 提供注册跳转入口 (Sign Up)。
-// 4. 展示服务条款提示。
+// 1. 邮箱登录逻辑：提供邮箱与密码的验证流程。
+// 2. 交互体验：实现邮箱输入后的平滑过渡动画，动态展示密码框及找回密码入口。
+// 3. 第三方集成：预留 Google、Apple 等社交账号登录入口，提升转化率。
+// 4. 安全反馈：针对登录失败提供友好的弹窗提示，并引导用户进行密码重置。
+//
+// 布局与适配：
+// - 采用 Mobile-first 策略，全宽单列布局 (393x852)。
+// - 适配 100dvh 以处理移动端浏览器底部遮挡问题。
+// - 遵循语义化 HTML 结构 (main, section, form, footer)。
 // -----------------------------------------------------------------------------
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { AuthHeader } from '../../components/Auth/AuthHeader';
 import { Input } from '../../components/Common/Input';
 import { Button } from '../../components/Common/Button';
@@ -15,8 +21,6 @@ import { AuthDivider } from '../../components/Auth/AuthDivider';
 import { GoogleIcon, AppleIcon, ArrowRightIcon } from '../../components/Auth/AuthIcons';
 import { Eye, EyeOff } from 'lucide-react';
 import { setTokens } from '../../lib/tokenManager';
-// 移除 Radix UI Alert Dialog，改用手写 Modal 以避免 Ref 问题
-// import { ... } from "../../components/ui/alert-dialog";
 
 interface LoginPageProps {
   onBack?: () => void;
@@ -25,69 +29,117 @@ interface LoginPageProps {
   onForgotPassword?: (email?: string) => void;
 }
 
-// 登录 API：仅走 email + password（无需验证码）
+/**
+ * 登录 API 调用 (loginByEmail)
+ * 业务逻辑：根据项目规范 (Rule 13) 封装，包含必要的 Header。
+ */
 async function loginByEmail(email: string, password: string) {
-  const res = await fetch('/api/admin/base/open/loginByEmail', {
+  // 根据 Rule 13 确定的 Base URL
+  const baseUrl = '/dev/admin/base'; 
+  
+  const res = await fetch(`${baseUrl}/open/loginByEmail`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Accept': 'application/json'
+      'Accept': 'application/json',
+      // 🔴 [多语言支持]: 必须传递 language 头以对齐后端字典映射
+      'language': 'en' 
     },
     body: JSON.stringify({ email, password })
   });
+
   if (!res.ok) throw new Error('Network error');
   const data = await res.json();
+
+  // 🔴 [成功码校验]: 严格检查 code === 1000
   if (data?.code !== 1000) {
-    // 将后端 message 透出，便于提示
     throw new Error(data?.message || 'Login failed');
   }
   return data.data;
 }
 
 export function LoginPage({ onBack, onSignUp, onLogin, onForgotPassword }: LoginPageProps) {
-  const [showPasswordInput, setShowPasswordInput] = useState(false); // Controls if password field is visible
-  const [showPasswordText, setShowPasswordText] = useState(false); // Controls password visibility (eye icon)
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  // -----------------------------------------------------------------------------
+  // 状态定义 (States)
+  // -----------------------------------------------------------------------------
+  
+  // 交互控制
+  const [showPasswordInput, setShowPasswordInput] = useState(false); // 控制密码框是否展示
+  const [showPasswordText, setShowPasswordText] = useState(false);  // 切换密码明文/密文
+  const [isLoginFailedDialogOpen, setIsLoginFailedDialogOpen] = useState(false); // 登录失败弹窗状态
+  const [errorMessage, setErrorMessage] = useState(''); // 存储具体的错误提示信息
+
+  // 表单数据 (组合状态：建议 4)
+  const [formData, setFormData] = useState({
+    email: '',
+    password: ''
+  });
+  
+  // 校验与反馈
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isLoginFailedDialogOpen, setIsLoginFailedDialogOpen] = useState(false); // 控制登录失败弹窗
 
-  // 调试日志：监控弹窗状态变化
-  useEffect(() => {
-    if (isLoginFailedDialogOpen) console.log("Login failed dialog opened");
-  }, [isLoginFailedDialogOpen]);
+  // -----------------------------------------------------------------------------
+  // 业务逻辑 (Business Logic)
+  // -----------------------------------------------------------------------------
 
+  /**
+   * 邮箱格式校验
+   */
   const validateEmail = (email: string) => {
     const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return re.test(email);
   };
+
+  /**
+   * 处理邮箱失去焦点 (onBlur)
+   * 交互体验：仅在邮箱合法时才展开密码框 (建议 2)
+   */
+  const handleEmailBlur = () => {
+    if (validateEmail(formData.email)) {
+      setShowPasswordInput(true);
+    }
+  };
   
-  // 新增：找回密码时带上当前输入的邮箱
+  /**
+   * 找回密码处理
+   */
   const handleForgotPassword = () => {
-    // 调用回调并传递当前邮箱
-    onForgotPassword?.(email);
+    onForgotPassword?.(formData.email);
   };
 
-  const handleLoginSubmit = async () => {
-    // 1. Basic validation
+  /**
+   * 登录提交主逻辑
+   * 职责：执行前端校验 -> 调用 API -> 处理 Token 存储 -> 路由跳转或错误反馈。
+   */
+  const handleLoginSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+
+    // 🔴 [键盘收起]: 提交开始时立即收起移动端键盘 (建议 2)
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+
+    // 重置错误状态
     setEmailError('');
     setPasswordError('');
+    setErrorMessage('');
 
-    if (!email) {
+    // 前端基础校验
+    if (!formData.email) {
       setEmailError('Email is required');
       return;
     }
-    if (!validateEmail(email)) {
+    if (!validateEmail(formData.email)) {
       setEmailError('Please enter a valid email address');
       return;
     }
-    if (showPasswordInput && !password) {
+    if (showPasswordInput && !formData.password) {
       setPasswordError('Password is required');
       return;
     }
-    if (showPasswordInput && password.length < 6) {
+    if (showPasswordInput && formData.password.length < 6) {
       setPasswordError('Password must be at least 6 characters');
       return;
     }
@@ -95,11 +147,10 @@ export function LoginPage({ onBack, onSignUp, onLogin, onForgotPassword }: Login
     setLoading(true);
 
     try {
-      // 2. Login via API（仅 email + password）
-      const loginResult = await loginByEmail(email.trim(), password);
+      // 执行登录
+      const loginResult = await loginByEmail(formData.email.trim(), formData.password);
       
-      // 登录成功：保存 token / refreshToken（含过期时间如果有）
-      // 增强容错：如果后端只返回了 data，尝试从 data 中解构
+      // 成功处理：规范化 Token 数据模型 (Rule 14)
       const rawData = loginResult.data || loginResult;
 
       const tokenPayload = {
@@ -114,29 +165,25 @@ export function LoginPage({ onBack, onSignUp, onLogin, onForgotPassword }: Login
       onLogin?.();
 
     } catch (err: any) {
-      console.error("Login error:", err);
-      // 登录失败：显示通用错误弹窗，避免账号枚举风险
+      // 🔴 [监控与反馈]: 增加调试日志及细化错误展示 (建议 3)
+      console.error("Login Error:", err);
+      setErrorMessage(err.message || 'The email or password you entered is incorrect. Please try again.');
       setIsLoginFailedDialogOpen(true);
     } finally {
       setLoading(false);
     }
   };
 
-  const isButtonDisabled = !email || !validateEmail(email) || (showPasswordInput && !password) || loading;
-  // Button is green (primary) when valid, otherwise it might be disabled or default style.
-  // The Button component likely handles disabled state styling.
+  const isButtonDisabled = !formData.email || !validateEmail(formData.email) || (showPasswordInput && !formData.password) || loading;
 
   return (
     <main 
       className="min-h-screen min-h-[100dvh] supports-[height:100dvh]:h-[100dvh] w-full bg-app-dark relative overflow-hidden flex flex-col px-[25px] text-white"
-      onClick={() => {
-        // Optional: click outside logic
-      }}
     >
-      {/* 顶部 Header：包含返回按钮 */}
+      {/* 顶部头部导航: 返回功能 */}
       <AuthHeader onBack={onBack} />
 
-      {/* 欢迎标题区 */}
+      {/* 欢迎语区域 (Header Section) */}
       <section className="mt-[40px] mb-[20px]">
         <h1 className="text-display font-semibold">
           <span className="text-brand-primary block">Welcome</span>
@@ -145,36 +192,26 @@ export function LoginPage({ onBack, onSignUp, onLogin, onForgotPassword }: Login
         <p className="text-text-muted text-lead mt-4 text-center w-full">Please sign in to continue</p>
       </section>
 
-      {/* 登录表单区 */}
-      <form 
-        className="flex flex-col"
-        onSubmit={(e) => {
-          e.preventDefault();
-          handleLoginSubmit();
-        }}
-      >
-        {/* 邮箱输入框 */}
+      {/* 登录表单主体 (Login Form) - 统一管理提交逻辑 (建议 1) */}
+      <form className="flex flex-col" onSubmit={handleLoginSubmit}>
+        {/* 邮箱输入 (Email Input Wrapper) */}
         <div className="flex flex-col gap-1 mb-[15px]">
           <Input
             type="email"
             placeholder="Email"
             autoComplete="email"
             containerClassName={emailError ? "border-red-500" : ""}
-            value={email}
+            value={formData.email}
             onChange={(e) => {
-              setEmail(e.target.value);
+              setFormData(prev => ({ ...prev, email: e.target.value }));
               if (emailError) setEmailError('');
             }}
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowPasswordInput(true);
-            }}
-            onFocus={() => setShowPasswordInput(true)}
+            onBlur={handleEmailBlur}
           />
-          {emailError && <span className="text-red-500 text-xs px-1">{emailError}</span>}
+          {emailError && <span className="text-red-500 text-xs px-1" role="alert">{emailError}</span>}
         </div>
 
-        {/* 密码输入框：仅在需要时显示 */}
+        {/* 密码输入 (Password Input Wrapper) - 带过渡动画 */}
         {showPasswordInput && (
           <div className="flex flex-col gap-1 mb-[15px] animate-in fade-in slide-in-from-top-2 duration-300">
             <div className="relative">
@@ -183,12 +220,11 @@ export function LoginPage({ onBack, onSignUp, onLogin, onForgotPassword }: Login
                 placeholder="Password" 
                 autoComplete="current-password"
                 containerClassName={`mb-0 pr-[50px] ${passwordError ? "border-red-500" : ""}`}
-                value={password}
+                value={formData.password}
                 onChange={(e) => {
-                  setPassword(e.target.value);
+                  setFormData(prev => ({ ...prev, password: e.target.value }));
                   if (passwordError) setPasswordError('');
                 }}
-                onClick={(e) => e.stopPropagation()}
               />
               <button
                 type="button"
@@ -199,35 +235,40 @@ export function LoginPage({ onBack, onSignUp, onLogin, onForgotPassword }: Login
                 {showPasswordText ? <EyeOff size={20} /> : <Eye size={20} />}
               </button>
             </div>
-            {passwordError && <span className="text-red-500 text-xs px-1">{passwordError}</span>}
+            {passwordError && <span className="text-red-500 text-xs px-1" role="alert">{passwordError}</span>}
           </div>
         )}
 
-        {/* 找回密码入口 - 仅在密码框显示时出现 */}
+        {/* 忘记密码跳转 (Forgot Password Link) */}
         {showPasswordInput && (
           <div className="flex justify-end mb-[15px] animate-in fade-in slide-in-from-top-1 duration-300">
             <button
               type="button"
               className="text-brand-primary text-sm font-medium hover:underline"
-              onClick={() => {
-                // TODO: 导航到找回密码页面
-                handleForgotPassword();
-              }}
+              onClick={handleForgotPassword}
             >
               Forgot Password?
             </button>
           </div>
         )}
+
+        {/* 邮箱登录主操作按钮 - 移动至 Form 内部并支持 Submit (建议 1) */}
+        <Button 
+          type="submit"
+          variant="primary" 
+          className="mb-[15px]"
+          icon={loading ? null : <ArrowRightIcon />}
+          disabled={isButtonDisabled}
+        >
+            {loading ? 'Checking...' : 'Continue with Email'}
+        </Button>
       </form>
 
-      {/* 分隔符：OR */}
+      {/* 视觉分割线 */}
       <AuthDivider />
 
-      {/* 社交登录按钮组 */}
-      <section 
-        className="flex flex-col gap-[12px] mb-[12px]"
-        onClick={(e) => e.stopPropagation()}
-      >
+      {/* 第三方快捷登录 (Social Login) (建议 4: 移除不必要的 stopPropagation) */}
+      <section className="flex flex-col gap-[12px] mb-[12px]">
           <Button variant="social" icon={<GoogleIcon />}>
               Continue with Google
           </Button>
@@ -237,25 +278,8 @@ export function LoginPage({ onBack, onSignUp, onLogin, onForgotPassword }: Login
           </Button>
       </section>
 
-      {/* 邮箱登录/继续按钮 */}
-      <Button 
-        variant="primary" 
-        onClick={(e) => {
-            e.stopPropagation();
-            handleLoginSubmit();
-        }}
-        className="mb-[15px]"
-        icon={loading ? null : <ArrowRightIcon />}
-        disabled={isButtonDisabled}
-      >
-          {loading ? 'Checking...' : 'Continue with Email'}
-      </Button>
-
-      {/* 底部跳转注册 */}
-      <footer 
-        className="flex items-center justify-center gap-1 mb-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
+      {/* 注册引导区域 (Footer Navigation) */}
+      <footer className="flex items-center justify-center gap-1 mb-auto">
           <span className="text-text-muted text-lead">Don't have an account?</span>
           <button 
             className="text-brand-primary text-lead font-semibold hover:underline"
@@ -265,34 +289,31 @@ export function LoginPage({ onBack, onSignUp, onLogin, onForgotPassword }: Login
           </button>
       </footer>
 
-      {/* 底部条款说明 */}
-      <p 
-        className="mt-8 mb-6 text-tiny text-text-subtle text-center"
-        onClick={(e) => e.stopPropagation()}
-      >
+      {/* 合规性说明 (Compliance Footer) */}
+      <p className="mt-8 mb-6 text-tiny text-text-subtle text-center">
           By continuing, you agree to our Terms of Service and Privacy Policy.
       </p>
 
-      {/* 登录失败弹窗 (Custom Modal) */}
+      {/* 🔴 [登录失败自定义弹窗]: 支持细化错误提示 (建议 3) */}
       {isLoginFailedDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          {/* Backdrop */}
+          {/* 背景遮罩 (Backdrop) */}
           <div 
             className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             onClick={() => setIsLoginFailedDialogOpen(false)}
           />
           
-          {/* Dialog Content */}
-          <div className="relative bg-[#1a1a1a] border border-white/10 text-white rounded-[20px] w-full max-w-sm p-6 shadow-xl animate-in fade-in zoom-in-95 duration-200">
+          {/* 弹窗主体 (Dialog Body) */}
+          <div className="relative bg-app-dark border border-white/10 text-white rounded-[20px] w-full max-w-sm p-6 shadow-xl animate-in fade-in zoom-in-95 duration-200">
             <div className="flex flex-col gap-2 text-center sm:text-left">
               <h3 className="text-lg font-semibold">Login Failed</h3>
-              <div className="text-[#b7b7bc] text-sm">
-                <span>The email or password you entered is incorrect. Please try again.</span>
+              <div className="text-text-muted text-sm">
+                <span>{errorMessage}</span>
                 <br /><br />
-                <span className="text-xs text-[#888] block">
+                <span className="text-xs text-text-subtle block">
                   Forgot your password? 
                   <span 
-                    className="text-[#b2dabb] font-medium cursor-pointer hover:underline mx-1"
+                    className="text-brand-primary font-medium cursor-pointer hover:underline mx-1"
                     onClick={() => {
                       setIsLoginFailedDialogOpen(false);
                       handleForgotPassword();
@@ -304,6 +325,7 @@ export function LoginPage({ onBack, onSignUp, onLogin, onForgotPassword }: Login
               </div>
             </div>
             
+            {/* 弹窗按钮组 (Action Buttons) */}
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 gap-2 mt-6">
               <button
                 className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors h-10 px-4 py-2 bg-transparent hover:bg-white/10 text-white border border-white/20"
@@ -312,7 +334,7 @@ export function LoginPage({ onBack, onSignUp, onLogin, onForgotPassword }: Login
                 Cancel
               </button>
               <button
-                className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors h-10 px-4 py-2 bg-[#b2dabb] text-black hover:bg-[#a1c9aa]"
+                className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors h-10 px-4 py-2 bg-brand-primary text-black hover:bg-brand-primary/90"
                 onClick={() => setIsLoginFailedDialogOpen(false)}
               >
                 Try Again

@@ -1,17 +1,18 @@
 // 找回密码页面 (ForgotPasswordPage)
 // -----------------------------------------------------------------------------
-// 处理用户忘记密码的流程。
+// 该页面处理用户忘记密码后的账户恢复流程，通过安全验证手段重新确立用户访问权限。
+// 
 // 主要职责：
-// 1. 第一步：输入注册邮箱，请求发送重置验证码。
-// 2. 第二步：输入验证码验证身份 (VerificationDialog)。
-// 3. 第三步：设置并确认新密码。
-// 4. 完成重置后直接登录，进入首页。
+// 1. 身份核验启动：接收注册邮箱并触发后台验证码发放逻辑。
+// 2. 交互式二次验证：通过 VerificationDialog 强制进行验证码比对，确保持卡人操作。
+// 3. 凭证重置：执行强密码策略校验，并提交新密码进行覆盖。
+// 4. 静默登录体验：重置成功后自动完成认证，无缝引导用户进入应用首页，消除操作阻断感。
 //
-// 布局考虑：
-// - 移动端优先：采用单列全宽布局，适应 393x852 设计稿。
-// - 语义化结构：使用 main, section, form, label 等元素。
-// - 交互体验：包含密码强度校验、Loading 状态、弹窗验证。
+// 布局与适配：
+// - 移动端优先：单列全宽布局，使用 min-h-[100dvh] 处理移动视口高度。
+// - 交互鲁棒性：提交时自动收起软键盘，提升弹窗与 Loading 态的视觉聚焦度。
 // -----------------------------------------------------------------------------
+
 import { useState } from 'react';
 import { AuthHeader } from '../../components/Auth/AuthHeader';
 import socialSvgPaths from "../../../assets/svgs/svg-5miuiwkafh";
@@ -22,7 +23,7 @@ import { Dialog } from "../../components/ui/dialog";
 import { Eye, EyeOff } from "lucide-react";
 import { setTokens } from "../../lib/tokenManager";
 
-// 右箭头图标：用于主操作按钮
+// 右箭头图标：提升操作按钮的视觉引导性
 const ArrowRightIcon = () => (
     <svg className="size-[16px]" fill="none" preserveAspectRatio="none" viewBox="0 0 16 16" aria-hidden="true">
          <path d="M3.33333 8H12.6667" stroke="black" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.33333" />
@@ -36,37 +37,80 @@ interface ForgotPasswordPageProps {
   initialEmail?: string;
 }
 
+// -----------------------------------------------------------------------------
+// 接口对接规范 (API Integration) - 遵循 Rule 13
+// -----------------------------------------------------------------------------
+const BASE_URL = '/dev/admin/base';
+
+/**
+ * 通用请求工具封装
+ * 职责：注入必需的 Header，执行标准的 code === 1000 业务成功判定。
+ */
+const authRequest = async (path: string, body: any) => {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      // 🔴 [多语言支持]: 必须传递以对齐后端返回的校验提示字典
+      'language': 'en' 
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) throw new Error(`Network Error: ${response.status}`);
+  const data = await response.json();
+  
+  if (data?.code !== 1000) {
+    throw new Error(data?.message || 'Request failed');
+  }
+  return data;
+};
+
 export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: ForgotPasswordPageProps) {
   // -----------------------------------------------------------------------------
   // 状态定义 (States)
   // -----------------------------------------------------------------------------
+  
+  // 流程控制
   const [step, setStep] = useState<'email' | 'reset'>('email');
   const [email, setEmail] = useState(initialEmail);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [otpValue, setOtpValue] = useState("");
-  const [dialogDescription, setDialogDescription] = useState(`We've sent a code to ${initialEmail || 'your email'}.`);
-  const [dialogButtonText, setDialogButtonText] = useState("Verify Code");
-  const [isDialogBusy, setIsDialogBusy] = useState(false);
   
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [verifiedCode, setVerifiedCode] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong' | ''>('');
-  const [passwordError, setPasswordError] = useState("");
-  const [, setLoading] = useState(false);
+  // 表单数据
+  const [passwordData, setPasswordData] = useState({
+    new: "",
+    confirm: "",
+    verifiedCode: ""
+  });
+
+  // UI 交互状态
+  const [uiStates, setUiStates] = useState({
+    loading: false,
+    showNew: false,
+    showConfirm: false,
+    strength: '' as 'weak' | 'medium' | 'strong' | '',
+    error: ""
+  });
+
+  // 验证码弹窗控制
+  const [dialog, setDialog] = useState({
+    open: false,
+    busy: false,
+    otp: "",
+    desc: `We've sent a code to ${initialEmail || 'your email'}.`,
+    btn: "Verify Code"
+  });
 
   // -----------------------------------------------------------------------------
   // 业务逻辑与校验 (Logic & Validation)
   // -----------------------------------------------------------------------------
 
-  // 密码强度校验逻辑
+  /**
+   * 密码强度校验核心逻辑
+   * 业务价值：在重置阶段强制提升安全等级，防止账户被二次弱口令攻击。
+   */
   const validatePassword = (pwd: string) => {
-    if (/\s/.test(pwd)) {
-      return { valid: false, strength: 'weak' as const, error: "No spaces allowed" };
-    }
-
+    if (/\s/.test(pwd)) return { valid: false, strength: 'weak' as const, error: "No spaces allowed" };
     const hasLength = pwd.length >= 8;
     const hasUpper = /[A-Z]/.test(pwd);
     const hasLower = /[a-z]/.test(pwd);
@@ -74,11 +118,8 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
     const typeCount = [hasUpper, hasLower, hasNumber].filter(Boolean).length;
 
     let strength: 'weak' | 'medium' | 'strong' = 'weak';
-    if (hasLength && hasUpper && hasLower && hasNumber) {
-      strength = 'strong';
-    } else if (hasLength && typeCount >= 2) {
-      strength = 'medium';
-    }
+    if (hasLength && hasUpper && hasLower && hasNumber) strength = 'strong';
+    else if (hasLength && typeCount >= 2) strength = 'medium';
 
     const isValid = strength === 'strong';
     let errorMsg = "";
@@ -89,187 +130,88 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
       else if (!hasNumber) errorMsg = "Must contain a number";
       else errorMsg = "Password is too weak";
     }
-
     return { valid: isValid, strength, error: errorMsg };
   };
 
   const handlePasswordChange = (val: string) => {
-    setNewPassword(val);
-
-    if (!val) {
-      setPasswordError("");
-      setPasswordStrength('');
-      return;
-    }
-
     const result = validatePassword(val);
-    setPasswordStrength(result.strength);
-    setPasswordError(result.valid ? "" : result.error);
+    setPasswordData(p => ({ ...p, new: val }));
+    setUiStates(p => ({ ...p, strength: val ? result.strength : '', error: val ? (result.valid ? "" : result.error) : "" }));
   };
 
-  // -----------------------------------------------------------------------------
-  // 接口对接 (API Calls)
-  // -----------------------------------------------------------------------------
-
-  // 1. 发送重置验证码
+  /**
+   * 1. 发送重置验证码
+   * 职责：触发邮件 -> 唤起验证弹窗 -> 等待用户输入
+   */
   const handleSendCode = async () => {
-    if (email) {
-      try {
-        setLoading(true);
-        setIsDialogOpen(true);
-        setIsDialogBusy(true);
-        setDialogButtonText("Sending...");
-        setDialogDescription(`Sending code to ${email.trim()}...`);
-        
-        // 使用通用的发送验证码接口
-        const response = await fetch('/api/admin/base/open/sendCode', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: email.trim() }),
-        });
+    if (!email) return;
 
-        if (!response.ok) {
-           throw new Error(`Failed to send code: ${response.status}`);
-        }
-        
-        const text = await response.text();
-        const data = text ? JSON.parse(text) : {};
-        
-        if (!text || data.code === 1000) {
-           setDialogDescription(`We've sent a code to ${email.trim()}.`);
-           setDialogButtonText("Verify Code");
-           setIsDialogBusy(false);
-        } else {
-           // 容错：如果后端需要 invitation
-           if (data.message?.includes("invitation")) {
-               const retryResponse = await fetch('/api/admin/base/open/sendCode', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ email: email.trim(), invitation: "reset" }),
-               });
-               const retryData = await retryResponse.json();
-               if (retryData.code === 1000) {
-                   setDialogDescription(`We've sent a code to ${email.trim()}.`);
-                   setDialogButtonText("Verify Code");
-                   setIsDialogBusy(false);
-                   return;
-               }
-           }
-           alert(data.message || "Failed to send code");
-           setIsDialogOpen(false);
-        }
-      } catch (error: any) {
-        alert(error.message || "Network error");
-        setIsDialogOpen(false);
-      } finally {
-        setIsDialogBusy(false);
-        setDialogButtonText("Verify Code");
-        setLoading(false);
-      }
+    // 🔴 [交互优化]: 提交开始立即收起移动端键盘
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+
+    try {
+      setUiStates(p => ({ ...p, loading: true }));
+      setDialog(p => ({ ...p, open: true, busy: true, btn: "Sending...", desc: `Sending code to ${email.trim()}...` }));
+      
+      await authRequest('/open/sendCode', { email: email.trim() });
+
+      setDialog(p => ({ ...p, busy: false, btn: "Verify Code", desc: `We've sent a code to ${email.trim()}.` }));
+    } catch (err: any) {
+      alert(err.message || "Failed to send code");
+      setDialog(p => ({ ...p, open: false }));
+    } finally {
+      setUiStates(p => ({ ...p, loading: false }));
     }
   };
 
-  // 2. 验证收到的验证码
+  /**
+   * 2. 验证并进入重置阶段
+   * 业务价值：确保重置操作发生在验证流程成功之后，形成严格的逻辑锁。
+   */
   const handleVerify = async () => {
-     if (otpValue.length !== 6) return;
-     
+     if (dialog.otp.length !== 6) return;
      try {
-       setLoading(true);
-       setIsDialogBusy(true);
-       setDialogButtonText("Verifying...");
+       setDialog(p => ({ ...p, busy: true, btn: "Verifying..." }));
+       await authRequest('/open/verifyCode', { email: email.trim(), code: dialog.otp });
        
-       const response = await fetch('/api/admin/base/open/verifyCode', {
-         method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ email: email.trim(), code: otpValue }),
-       });
-
-       const data = await response.json();
-
-       if (data.code === 1000) {
-          setVerifiedCode(otpValue);
-         setIsDialogOpen(false);
-         setStep('reset');
-       } else {
-         alert(data.message || "Invalid verification code");
-       }
-     } catch (error: any) {
-       alert(error.message || "Verification failed");
-     } finally {
-       setLoading(false);
-      setIsDialogBusy(false);
-      setDialogButtonText("Verify Code");
+       setPasswordData(p => ({ ...p, verifiedCode: dialog.otp }));
+       setDialog(p => ({ ...p, open: false, busy: false }));
+       setStep('reset');
+     } catch (err: any) {
+       alert(err.message || "Verification failed");
+       setDialog(p => ({ ...p, busy: false, btn: "Verify Code" }));
      }
   };
 
-  // 3. 执行重置密码并自动登录
+  /**
+   * 3. 执行重置密码并自动登录
+   * 业务价值：实现“重置成功即登录”的护航体验，极大提升用户活跃留存。
+   */
   const handleResetAndLogin = async () => {
-      if (newPassword && confirmPassword) {
-          if (!verifiedCode) {
-            alert("Please verify the code first.");
-            setStep('email');
-            return;
-          }
+      if (passwordData.new && passwordData.confirm) {
+          if (!passwordData.verifiedCode) return setStep('email');
+          if (uiStates.strength !== 'strong') return alert(uiStates.error);
+          if (passwordData.new !== passwordData.confirm) return alert("Passwords do not match");
 
-          const result = validatePassword(newPassword);
-          if (!result.valid) {
-            alert(result.error);
-            return;
-          }
-
-          if (newPassword !== confirmPassword) {
-            alert("Passwords do not match");
-            return;
-          }
+          if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
 
           try {
-            setLoading(true);
+            setUiStates(p => ({ ...p, loading: true }));
             
-            // 步骤 1: 重置密码
-            const resetResponse = await fetch('/api/admin/base/sys/user/resetPassword', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({
-                    email: email.trim(),
-                    code: verifiedCode,
-                    password: newPassword
-                })
+            // 阶段 1: 重置密码指令
+            await authRequest('/sys/user/resetPassword', {
+                email: email.trim(),
+                code: passwordData.verifiedCode,
+                password: passwordData.new
             });
 
-            if (!resetResponse.ok) {
-              const errText = await resetResponse.text();
-              throw new Error(errText || 'Failed to reset password');
-            }
-
-            const resetData = await resetResponse.json();
-            if (resetData.code !== 1000) {
-              throw new Error(resetData.message || 'Failed to reset password');
-            }
-
-            // 步骤 2: 重置成功后执行登录
-            const loginResponse = await fetch('/api/admin/base/open/loginByEmail', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-              },
-              body: JSON.stringify({ email: email.trim(), password: newPassword })
+            // 阶段 2: 静默登录获权
+            const loginData = await authRequest('/open/loginByEmail', { 
+                email: email.trim(), 
+                password: passwordData.new 
             });
 
-            if (!loginResponse.ok) {
-              const errText = await loginResponse.text();
-              throw new Error(errText || 'Failed to login after reset');
-            }
-
-            const loginData = await loginResponse.json();
-            if (loginData?.code !== 1000) {
-              throw new Error(loginData?.message || 'Login failed after reset');
-            }
-
-            // 存储认证令牌并跳转
+            // 存储认证令牌进入本地持久化
             setTokens({
               token: loginData.data?.token,
               refreshToken: loginData.data?.refreshToken,
@@ -278,42 +220,36 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
               persist: 'local',
             });
 
-            alert("Password reset successfully. Redirecting to Home...");
+            alert("Password reset successfully. Redirecting...");
             onLogin?.();
-          } catch (error: any) {
-            alert(error.message || "Network error");
+          } catch (err: any) {
+            alert(err.message || "Operation failed");
           } finally {
-            setLoading(false);
+            setUiStates(p => ({ ...p, loading: false }));
           }
       }
   };
 
   return (
     <main className="min-h-screen min-h-[100dvh] supports-[height:100dvh]:h-[100dvh] w-full bg-app-dark relative overflow-hidden flex flex-col px-[25px] text-white">
-      {/* 顶部导航区 (Header Section) */}
+      {/* 顶部头部：根据步骤决定返回逻辑 */}
       <AuthHeader onBack={step === 'email' ? onBack : () => setStep('email')} />
 
       {step === 'email' ? (
-        <>
-            {/* 第一步：邮箱输入标题区 (Email Step Header) */}
-            <section className="mt-[40px] mb-[20px]">
+        <section className="flex flex-col animate-in fade-in duration-500">
+            {/* 步骤一：邮箱识别标题区 */}
+            <div className="mt-[40px] mb-[20px]">
                 <h1 className="text-display font-semibold">
-                <span className="text-brand-primary block">Forgot</span>
-                <span className="block">Password</span>
+                  <span className="text-brand-primary block">Forgot</span>
+                  <span className="block">Password</span>
                 </h1>
                 <p className="text-text-muted text-lead mt-4 text-center w-full">
-                Enter your email address to receive a verification code to reset your password.
+                  Enter your email address to receive a verification code to reset your password.
                 </p>
-            </section>
+            </div>
 
-            {/* 邮箱输入表单 (Email Form) */}
-            <form 
-                className="flex flex-col"
-                onSubmit={(e) => {
-                    e.preventDefault();
-                    if (email) handleSendCode();
-                }}
-            >
+            {/* 邮箱提交表单 */}
+            <form onSubmit={(e) => { e.preventDefault(); handleSendCode(); }} className="flex flex-col">
                 <div className="flex flex-col mb-[30px]">
                     <label htmlFor="email-input" className="sr-only">Email Address</label>
                     <Input 
@@ -324,187 +260,125 @@ export function ForgotPasswordPage({ onBack, onLogin, initialEmail = "" }: Forgo
                         onChange={(e) => setEmail(e.target.value)}
                         autoFocus
                         required
-                        aria-required="true"
                     />
                 </div>
 
-                {/* 发送验证码按钮 (Submit Button) */}
                 <Button 
                     variant="primary"
                     className="mb-[15px] shadow-lg"
                     icon={<ArrowRightIcon />}
-                    disabled={!email}
+                    disabled={!email || uiStates.loading}
                     type="submit"
-                    aria-label="Send verification code to your email"
                 >
-                    Send verification code
+                    {uiStates.loading ? "Checking..." : "Send verification code"}
                 </Button>
             </form>
-        </>
+        </section>
       ) : (
-        <>
-            {/* 第二步：重置密码标题区 (Reset Step Header) */}
-            <section className="mt-[40px] mb-[20px]">
+        <section className="flex flex-col animate-in fade-in slide-in-from-right-4 duration-500">
+            {/* 步骤二：凭证重置标题区 */}
+            <div className="mt-[40px] mb-[20px]">
                 <h1 className="text-display font-semibold">
-                <span className="text-brand-primary block">Reset</span>
-                <span className="block">Password</span>
+                  <span className="text-brand-primary block">Reset</span>
+                  <span className="block">Password</span>
                 </h1>
                 <p className="text-text-muted text-lead mt-4 text-center w-full">
-                Enter your new password below.
+                  Enter your new password below.
                 </p>
-            </section>
+            </div>
 
-            {/* 重置密码表单 (Reset Form) */}
-            <form
-                className="flex flex-col"
-                onSubmit={(e) => {
-                    e.preventDefault();
-                    handleResetAndLogin();
-                }}
-            >
-                {/* 只读邮箱显示 (Read-only Email) */}
+            {/* 凭证提交表单 */}
+            <form onSubmit={(e) => { e.preventDefault(); handleResetAndLogin(); }} className="flex flex-col">
+                {/* 账号回显 (只读状态) */}
                 <div className="mb-[15px] opacity-60">
-                    <label htmlFor="readonly-email" className="sr-only">Your Email</label>
-                    <Input 
-                        id="readonly-email"
-                        type="email"
-                        value={email}
-                        readOnly
-                        aria-readonly="true"
-                    />
+                    <Input type="email" value={email} readOnly />
                 </div>
 
-                {/* 新密码输入 (New Password Input) */}
+                {/* 新密码设置：含实时强度对撞机 */}
                 <div className="relative mb-[30px]">
                   <div className="relative">
-                    <label htmlFor="new-password" className="sr-only">New Password</label>
                     <Input 
-                        id="new-password"
-                        type={showPassword ? "text" : "password"}
+                        type={uiStates.showNew ? "text" : "password"}
                         placeholder="New Password"
                         containerClassName={`mb-0 pr-[50px] transition-colors ${
-                            passwordError ? "border-red-500" : 
-                            passwordStrength === 'strong' ? "border-green-500" :
-                            passwordStrength === 'medium' ? "border-orange-500" :
-                            ""
+                            uiStates.error ? "border-red-500" : (uiStates.strength === 'strong' ? "border-green-500" : "")
                         }`}
-                        value={newPassword}
+                        value={passwordData.new}
                         onChange={(e) => handlePasswordChange(e.target.value)}
                         autoFocus
                         required
                     />
-                    {/* 切换密码显示按钮 (Toggle Visibility) */}
                     <button
                       type="button"
-                      className="absolute right-[20px] top-1/2 -translate-y-1/2 text-[#b7b7bc] hover:text-white transition-colors"
-                      onClick={() => setShowPassword(!showPassword)}
-                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      className="absolute right-[20px] top-1/2 -translate-y-1/2 text-text-muted hover:text-white transition-colors"
+                      onClick={() => setUiStates(p => ({ ...p, showNew: !p.showNew }))}
                     >
-                      {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                      {uiStates.showNew ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
                   </div>
 
-                  {/* 密码强度指示器 (Password Strength Indicator) */}
-                  {newPassword && (
+                  {/* 密码强度指示器 (业务逻辑反馈) */}
+                  {passwordData.new && (
                       <div className="flex flex-col gap-1.5 mt-2 w-[60%] mx-auto" aria-live="polite">
                           <div className="flex gap-1 h-1 w-full">
-                              <div className={`flex-1 rounded-full transition-all duration-300 ${
-                                  passwordStrength ? (
-                                      passwordStrength === 'weak' ? 'bg-red-500' :
-                                      passwordStrength === 'medium' ? 'bg-orange-500' :
-                                      'bg-green-500'
-                                  ) : 'bg-white/10'
-                              }`} />
-                              <div className={`flex-1 rounded-full transition-all duration-300 ${
-                                  (passwordStrength === 'medium' || passwordStrength === 'strong') ? (
-                                      passwordStrength === 'medium' ? 'bg-orange-500' :
-                                      'bg-green-500'
-                                  ) : 'bg-white/10'
-                              }`} />
-                              <div className={`flex-1 rounded-full transition-all duration-300 ${
-                                  passwordStrength === 'strong' ? 'bg-green-500' : 'bg-white/10'
-                              }`} />
-                          </div>
-
-                          <div className="flex justify-between items-start">
-                              <span className={`text-xs font-medium transition-colors ${
-                                  passwordStrength === 'weak' ? 'text-red-500' :
-                                  passwordStrength === 'medium' ? 'text-orange-500' :
-                                  passwordStrength === 'strong' ? 'text-green-500' : 'text-gray-400'
-                              }`}>
-                                  {passwordStrength ? (passwordStrength.charAt(0).toUpperCase() + passwordStrength.slice(1)) : ''}
-                              </span>
-                              {passwordStrength !== 'strong' && (
-                                  <span className="text-[10px] text-gray-500 text-right">
-                                      8+ chars, Uppercase, Lowercase, Number
-                                  </span>
-                              )}
+                              <div className={`flex-1 rounded-full transition-all duration-300 ${uiStates.strength ? (uiStates.strength === 'weak' ? 'bg-red-500' : (uiStates.strength === 'medium' ? 'bg-orange-500' : 'bg-green-500')) : 'bg-white/10'}`} />
+                              <div className={`flex-1 rounded-full transition-all duration-300 ${(uiStates.strength === 'medium' || uiStates.strength === 'strong') ? (uiStates.strength === 'medium' ? 'bg-orange-500' : 'bg-green-500') : 'bg-white/10'}`} />
+                              <div className={`flex-1 rounded-full transition-all duration-300 ${uiStates.strength === 'strong' ? 'bg-green-500' : 'bg-white/10'}`} />
                           </div>
                       </div>
                   )}
-                  {passwordError && <span className="text-red-500 text-xs px-1 mt-1 block text-center" role="alert">{passwordError}</span>}
+                  {uiStates.error && <span className="text-red-500 text-xs mt-1 block text-center" role="alert">{uiStates.error}</span>}
                 </div>
 
-                {/* 确认密码输入 (Confirm Password Input) */}
-                {newPassword && (
+                {/* 确认密码 (Confirm Password) */}
+                {passwordData.new && (
                   <div className="relative mb-[30px] animate-in fade-in slide-in-from-top-2 duration-300">
                     <div className="relative">
-                      <label htmlFor="confirm-password" className="sr-only">Confirm Password</label>
                       <Input 
-                          id="confirm-password"
-                          type={showConfirmPassword ? "text" : "password"}
+                          type={uiStates.showConfirm ? "text" : "password"}
                           placeholder="Confirm Password"
-                          containerClassName={`mb-0 pr-[50px] transition-colors ${
-                              confirmPassword && newPassword !== confirmPassword ? "border-red-500" : ""
-                          }`}
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          containerClassName={passwordData.confirm && passwordData.new !== passwordData.confirm ? "border-red-500" : ""}
+                          value={passwordData.confirm}
+                          onChange={(e) => setPasswordData(p => ({ ...p, confirm: e.target.value }))}
                           required
                       />
                       <button
                           type="button"
-                          className="absolute right-[20px] top-1/2 -translate-y-1/2 text-[#b7b7bc] hover:text-white transition-colors"
-                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                          className="absolute right-[20px] top-1/2 -translate-y-1/2 text-text-muted hover:text-white transition-colors"
+                          onClick={() => setUiStates(p => ({ ...p, showConfirm: !p.showConfirm }))}
                       >
-                          {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                          {uiStates.showConfirm ? <EyeOff size={20} /> : <Eye size={20} />}
                       </button>
                     </div>
-                    {confirmPassword && newPassword !== confirmPassword && (
-                        <span className="text-red-500 text-xs px-1 mt-1 block text-center" role="alert">Passwords do not match</span>
+                    {passwordData.confirm && passwordData.new !== passwordData.confirm && (
+                        <span className="text-red-500 text-xs mt-1 block text-center" role="alert">Passwords do not match</span>
                     )}
                   </div>
                 )}
 
-                {/* 重置并登录按钮 (Submit Button) */}
                 <Button 
                     variant="primary"
                     className="mb-[15px] shadow-lg"
                     icon={<ArrowRightIcon />}
-                    disabled={
-                      !newPassword ||
-                      !confirmPassword ||
-                      passwordStrength !== 'strong' ||
-                      newPassword !== confirmPassword
-                    }
+                    disabled={!passwordData.new || !passwordData.confirm || uiStates.strength !== 'strong' || passwordData.new !== passwordData.confirm || uiStates.loading}
                     type="submit"
                 >
-                    Login
+                    {uiStates.loading ? "Updating..." : "Login"}
                 </Button>
             </form>
-        </>
+        </section>
       )}
 
-      {/* 验证码校验弹窗 (OTP Dialog) */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      {/* 验证码校验弹窗 (Verification Dialog) */}
+      <Dialog open={dialog.open} onOpenChange={(o) => setDialog(p => ({ ...p, open: o }))}>
         <VerificationDialogContent 
-          otpValue={otpValue}
-          setOtpValue={setOtpValue}
+          otpValue={dialog.otp}
+          setOtpValue={(v) => setDialog(p => ({ ...p, otp: v }))}
           onVerify={handleVerify}
           title="Enter Verification Code"
-          description={dialogDescription}
-          buttonText={dialogButtonText}
-          isVerifying={isDialogBusy}
+          description={dialog.desc}
+          buttonText={dialog.btn}
+          isVerifying={dialog.busy}
         />
       </Dialog>
     </main>

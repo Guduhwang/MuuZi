@@ -175,25 +175,44 @@ Rules:
 - Usage: Available but not emphasized
 
 # API Integration & Backend Rules (Critical)
-## 13. API Foundation
-- **Base URLs**: Development: `/dev`, Production: `/api`.
+## 13. API Foundation & Protocols
+- **Base URLs**: Development: `/dev/admin/base`, Production: `/api/admin/base`.
 - **Success Code**: All business responses must check `code === 1000` for success.
-- **Authentication**: Include `Authorization: {token}` in request headers (unless `IGNORE_TOKEN`).
+- **Mandatory Headers**: 
+  - `Authorization: {token}` (unless `IGNORE_TOKEN`).
+  - `Accept: application/json`.
+  - `Content-Type: application/json`.
+  - `language`: Must sync with `i18n.locale` for backend dictionary mapping.
 - **Standard Response Structure**:
   ```json
   { "code": 1000, "data": { ... }, "message": "Success" }
   ```
+- **Error Handling**: 401 status or specific error codes must trigger automatic logout and clear local storage.
+- **Proxy Configuration**: Development proxy points to `http://47.117.179.35:8001`. WebSocket uses `/socket`.
 
 ## 14. Core Data Models
-- **User**: `id`, `name` (login name), `nickName`, `avatar`, `email`, `tokens`.
+- **User**: `id`, `name` (login name), `nickName`, `avatar`, `email`, `tokens`, `remark` (signature), `serviceCode` (embedded script), `shareLink` (social links).
+- **Avatar / Agent**:
+  - Template: `TMembersParentConfig` (id, name, avatar, type, config).
+  - Instance: `memberDetail` (userId, groupId, configPacks, parentType).
+- **Group / Workspace**: `id`, `name`, `remark`, `avatar`, `type`, `members` (count).
+- **Goods / Workflow**:
+  - Goods: `id`, `title`, `mainPic`, `price`, `workflowId`.
+  - Execution: Payload must be Base64 encoded JSON. Results use `TWorkflowMsg` structure.
 - **Registration Flow**:
   - `userId` MUST be passed from `Register.tsx` to `ProfileSetup.tsx` via `sessionStorage`.
   - Registration payload must include both `invitationCode` and `inviteCode` for compatibility.
-- **Avatar Upload**: Supports both cloud (OSS signature) and direct URL returns. Always append `?t={timestamp}` to new avatar URLs to force re-render.
 
-## 15. Security & Privacy
+## 15. Security, Privacy & Compliance
 - **Logging**: NEVER `console.log` raw API responses, tokens, or sensitive user data in production-ready code.
 - **Privacy**: Anonymize sensitive fields (like emails) when displayed in shared UI components (e.g., `HomeHeader`).
+- **Safety Sandbox**: `serviceCode` (embedded scripts) must be treated as unsafe. Ensure it's rendered within a restricted environment (e.g., iframe sandbox) if applicable.
+- **Data Integrity**: Assume EPS metadata is missing. Verify API paths and parameters against the runtime `/admin/base/open/eps` endpoint during development.
+
+## 16. File & Asset Handling
+- **Upload Mode**: Always fetch `/comm/uploadMode` to determine if the target is `local` or `cloud` (OSS).
+- **Avatar Cache**: Always append `?t={timestamp}` to new avatar URLs to force browser re-render.
+- **Media**: Supported formats for upload include common images and documents as per backend restrictions.
 
 # Output requirements (Strict)
 - Use **React + Tailwind CSS**.

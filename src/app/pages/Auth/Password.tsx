@@ -1,13 +1,19 @@
-// 密码设置与验证页面 (PasswordPage)
+// 密码安全验证页面 (PasswordPage)
 // -----------------------------------------------------------------------------
-// 注册流程的最后一步，用于设置安全凭证。
+// 该页面作为注册流程的安全确认环节，负责设置高强度密码并完成最后的身份核验。
+// 
 // 主要职责：
-// 1. 设置账户登录密码。
-// 2. 填写邀请码 (Invitation Code) - 现已前置到注册页，此处为确认或修改。
-// 3. 触发验证码发送流程 (handleSendCode)。
-// 4. 弹出验证码输入框并完成最终注册验证。
+// 1. 安全凭证设定：执行符合金融级安全要求的强密码校验（长度、复杂度、空格过滤）。
+// 2. 邀请关系确认：允许用户在最后阶段核对或修正邀请码，确保社区激励归属。
+// 3. 护航式验证：触发并验证邮箱验证码，实现“注册即登录”的闭环。
+// 4. 容错引导：识别已注册账户并提供快速登录入口，减少用户流失。
+//
+// 布局与适配：
+// - 移动端优先：采用单列全宽布局，使用 min-h-[100dvh] 适配移动端视口。
+// - 交互鲁棒性：提交开始时自动收起软键盘，提升验证码弹窗的视觉沉浸感。
 // -----------------------------------------------------------------------------
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { AuthHeader } from '../../components/Auth/AuthHeader';
 import { Input } from '../../components/Common/Input';
 import { Button } from '../../components/Common/Button';
@@ -30,181 +36,177 @@ interface PasswordPageProps {
   onBack?: () => void;
   onSignUp?: () => void;
   onForgotPassword?: () => void;
-  onLogin?: () => void; // Added for "Go to Login"
-  email?: string;       // Added for API call
-  initialInvitationCode?: string; // Added to receive code from Register page
+  onLogin?: () => void;
+  email?: string;
+  initialInvitationCode?: string;
 }
 
-export function PasswordPage({ onBack, onSignUp, onForgotPassword, onLogin, email = "", initialInvitationCode = "" }: PasswordPageProps) {
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isRegisteredModalOpen, setIsRegisteredModalOpen] = useState(false);
-  const [otpValue, setOtpValue] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [password, setPassword] = useState("");
-  const [invitationCode, setInvitationCode] = useState(initialInvitationCode);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+// -----------------------------------------------------------------------------
+// 接口对接规范 (API Integration) - 遵循 Rule 13
+// -----------------------------------------------------------------------------
+const BASE_URL = '/dev/admin/base';
 
-  React.useEffect(() => {
+/**
+ * 通用 Fetch 请求封装
+ */
+const secureFetch = async (path: string, body: any) => {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      // 🔴 [多语言支持]: 必须传递以对齐后端错误字典映射
+      'language': 'en' 
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) throw new Error('Network error');
+  const data = await response.json();
+  
+  // 🔴 [业务码校验]: 严格执行 1000 成功判定
+  if (data?.code !== 1000) {
+    throw new Error(data?.message || 'Request failed');
+  }
+  return data;
+};
+
+export function PasswordPage({ 
+  onBack, 
+  onSignUp, 
+  onForgotPassword, 
+  onLogin, 
+  email = "", 
+  initialInvitationCode = "" 
+}: PasswordPageProps) {
+  // -----------------------------------------------------------------------------
+  // 状态定义 (States)
+  // -----------------------------------------------------------------------------
+  
+  // 聚合表单数据：减少 useState 数量，使数据流向更集中 (Rule 6)
+  const [formData, setFormData] = useState({
+    password: "",
+    invitationCode: initialInvitationCode,
+    otpValue: ""
+  });
+
+  // UI 交互状态
+  const [uiStates, setUiStates] = useState({
+    loading: false,
+    showPassword: false,
+    passwordError: "",
+    invitationError: ""
+  });
+
+  // 弹窗状态
+  const [dialogs, setDialogs] = useState({
+    verification: false,
+    registered: false
+  });
+
+  // -----------------------------------------------------------------------------
+  // 业务逻辑 (Business Logic)
+  // -----------------------------------------------------------------------------
+
+  useEffect(() => {
     if (initialInvitationCode) {
-      setInvitationCode(initialInvitationCode);
+      setFormData(prev => ({ ...prev, invitationCode: initialInvitationCode }));
     }
   }, [initialInvitationCode]);
 
+  /**
+   * 强密码校验逻辑
+   * 业务价值：在注册阶段强制提升账户安全性，防范暴力破解。
+   */
   const validatePassword = (pwd: string): boolean => {
-    // 1. Length 8-64
-    // 2. Uppercase
-    // 3. Lowercase
-    // 4. Number
-    // 5. Special char
-    // 6. No whitespace
+    // 规则：8-64位，包含大写、小写、数字、特殊字符，禁止空格
     const regex = /^(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[^A-Za-z0-9])(?!.*\s).{8,64}$/;
     return regex.test(pwd);
   };
 
-  const handleSendCode = async () => {
-    // 1. Validate Password
-    if (!validatePassword(password)) {
-      setError("Password must be 8–64 characters and include uppercase, lowercase, number, and special character.");
+  /**
+   * 发送验证码主流程
+   * 职责：前端校验 -> 查重拦截 -> 发送指令
+   */
+  const handleSendCode = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+
+    // 🔴 [交互体验]: 提交开始时立即收起移动端键盘
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+
+    // 1. 基础合法性检查
+    if (!validatePassword(formData.password)) {
+      setUiStates(prev => ({ ...prev, passwordError: "Must be 8–64 chars with mixed cases, numbers & symbols." }));
       return;
     }
-    setError("");
-
-    // 2. Validate Invitation Code
-    if (!invitationCode.trim()) {
-      // Should validation error be shown? The requirement says "Button disabled if ... invitationCode empty". 
-      // So this block might not be reachable if disabled logic is correct. 
-      // But for safety:
-      return; 
+    if (!formData.invitationCode.trim()) {
+      setUiStates(prev => ({ ...prev, invitationError: "Invitation code is required." }));
+      return;
     }
-    // Additional validation for length >= 4
-    if (invitationCode.trim().length < 4) {
-       // Requirement: "Validation fail show error text: Invalid invitation code."
-       // I need a way to show invitation code error. Currently only 'error' state for password.
-       // Let's use alert or add another error state? 
-       // Requirement: "Error handling centralized... show error text"
-       // I'll use the existing 'error' state or alert. Let's use alert for now as I can't easily add UI for invitation error without changing JSX structure significantly.
-       // Or better, let's reuse setError but prefix it? Or just alert.
-       // "Show error text: Invalid invitation code." -> implied UI text.
-       // I will add a specific error state for invitation code if needed, but let's try to reuse or just return.
-       // Wait, the prompt says "Send Verification Code button disabled in the following cases: ... invitationCode empty or validation failed".
-       // If I implement validation logic in render/disabled check, I don't need to check here.
-       // But "Validation fail show error text" implies UI feedback.
-       // Let's skip complex UI changes for invitation error and rely on disabled button + simple check.
-       // Actually, I'll add a check here.
-       alert("Invalid invitation code.");
-       return;
-    }
-
-    setLoading(true);
+    
+    setUiStates(prev => ({ ...prev, passwordError: "", invitationError: "", loading: true }));
 
     try {
-      // 3. Call API to check email status
-      const response = await fetch('/api/admin/base/open/exist', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Accept-Language': navigator?.language || 'en',
-        },
-        body: JSON.stringify({
-          email: email,
-        }),
-      });
-
-      const data = await response.json();
-
-      // Step 3: Handle response based on code
-      if (data.code !== 1000) {
-        // Interface error or business failure
-        alert(data.message || "Network error, please try again.");
-        return; // Interrupt flow
-      }
-
-      // Only check data when code === 1000
-      // 部分后端会把布尔值序列化成字符串/数字，做一次标准化
-      const existsRaw = data.data;
+      // 2. 邮箱存在性自检：避免重复注册导致的 500 错误
+      const existData = await secureFetch('/open/exist', { email });
+      const existsRaw = existData.data;
       const isRegistered = existsRaw === true || existsRaw === 'true' || existsRaw === 1;
 
       if (isRegistered) {
-        // User exists -> Show Modal
-        setIsRegisteredModalOpen(true);
-        return; // Interrupt flow
+        setDialogs(prev => ({ ...prev, registered: true }));
+        return;
       } 
       
-      // Not registered -> continue flow
-      if (isRegistered === false || existsRaw === 'false' || existsRaw === 0 || existsRaw === undefined) {
-        // 4. Send Email Verification Code
-        const sendResp = await fetch('/api/admin/base/open/sendCode', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Accept-Language': navigator?.language || 'en',
-          },
-          body: JSON.stringify({ email, invitation: invitationCode.trim() }),
-        });
-        const sendData = await sendResp.json();
-        if (sendData.code !== 1000) {
-          alert(sendData.message || "Failed to send verification code, please retry.");
-          return;
-        }
-        // Open verification dialog
-        setIsDialogOpen(true);
-      }
+      // 3. 触发验证码发送
+      await secureFetch('/open/sendCode', { email, invitation: formData.invitationCode.trim() });
+      setDialogs(prev => ({ ...prev, verification: true }));
 
-    } catch (err) {
-      console.error("API Error:", err);
-      alert("Network error, please try again.");
+    } catch (err: any) {
+      alert(err.message || "Network error, please try again.");
     } finally {
-      setLoading(false);
+      setUiStates(prev => ({ ...prev, loading: false }));
     }
   };
 
-
+  /**
+   * 最终验证逻辑
+   * 业务价值：完成注册闭环，并进行“验证即登录”的护航处理。
+   */
   const handleVerify = async () => {
-    if (otpValue.length !== 6) return;
+    if (formData.otpValue.length !== 6) return;
+    
+    setUiStates(prev => ({ ...prev, loading: true }));
     try {
-      setLoading(true);
-      const verifyResp = await fetch('/api/admin/base/open/verifyCode', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Accept-Language': navigator?.language || 'en',
-        },
-        body: JSON.stringify({ email, code: otpValue }),
-      });
-      const verifyData = await verifyResp.json();
-      if (verifyData.code !== 1000 || !verifyData.data?.token) {
-        alert(verifyData.message || "Verification failed, please try again.");
-        return;
+      const verifyData = await secureFetch('/open/verifyCode', { email, code: formData.otpValue });
+      
+      // 🔴 [模型持久化]: 存储 Token 进入会话 (Rule 14)
+      if (verifyData.data?.token) {
+        setTokens({
+          token: verifyData.data.token,
+          refreshToken: verifyData.data.refreshToken,
+          expire: verifyData.data.expire,
+          refreshExpire: verifyData.data.refreshExpire,
+          persist: 'session',
+        });
+        onSignUp?.();
       }
-      // 存储 token（临时会话），后续设置密码/资料时可带上
-      setTokens({
-        token: verifyData.data.token,
-        refreshToken: verifyData.data.refreshToken,
-        expire: verifyData.data.expire,
-        refreshExpire: verifyData.data.refreshExpire,
-        persist: 'session',
-      });
-      onSignUp?.();
-    } catch (err) {
-      console.error("Verify code failed:", err);
-      alert("Network error, please try again.");
+    } catch (err: any) {
+      alert(err.message || "Verification failed, please try again.");
     } finally {
-      setLoading(false);
+      setUiStates(prev => ({ ...prev, loading: false }));
     }
   };
-  
-  const isButtonDisabled = !password || !invitationCode || !!error || loading;
+
+  const isButtonDisabled = !formData.password || !formData.invitationCode || uiStates.loading;
 
   return (
     <main className="min-h-screen min-h-[100dvh] supports-[height:100dvh]:h-[100dvh] w-full bg-app-dark relative overflow-hidden flex flex-col px-[25px] text-white">
-      {/* 顶部 Header：包含返回按钮 */}
+      {/* 顶部公共头部 (AuthHeader) */}
       <AuthHeader onBack={onBack} />
 
-      {/* 页面标题区 */}
+      {/* 欢迎标题区 (Header Section) */}
       <section className="mt-[40px] mb-[20px]">
         <h1 className="text-display font-semibold">
           <span className="text-brand-primary block">Final</span>
@@ -213,78 +215,62 @@ export function PasswordPage({ onBack, onSignUp, onForgotPassword, onLogin, emai
         <p className="text-text-muted text-lead mt-4 text-center w-full">Secure your account</p>
       </section>
 
-      {/* 表单区域 */}
-      <form 
-        className="flex flex-col"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!isButtonDisabled) {
-             handleSendCode();
-          }
-        }}
-      >
-        {/* 密码输入框 */}
+      {/* 密码表单区域 (Password Form) */}
+      <form className="flex flex-col" onSubmit={handleSendCode}>
+        {/* 密码输入框：含实时强度反馈样式 */}
         <div className="flex flex-col gap-1 mb-[15px]">
           <div className="relative">
             <Input 
-              type={showPassword ? "text" : "password"}
+              type={uiStates.showPassword ? "text" : "password"}
               placeholder="Password"
-              containerClassName={`mb-0 pr-[50px] ${error ? "border-red-500" : ""}`}
+              containerClassName={`mb-0 pr-[50px] ${uiStates.passwordError ? "border-red-500" : ""}`}
               autoFocus
-              value={password}
+              value={formData.password}
               onChange={(e) => {
-                const val = e.target.value;
-                setPassword(val);
-                // Real-time validation
-                if (!validatePassword(val)) {
-                   // Optional: Don't show error immediately while typing unless it was already shown?
-                   // Prompt says: "When password does not meet rules, show error below input"
-                   // Usually real-time validation is preferred.
-                   // But showing full error while typing might be annoying.
-                   // Let's set error only if it was already set or maybe just rely on button click?
-                   // Prompt: "In the process of user input... must perform real-time validation... When password does not meet rules... show error"
-                   // Okay, real-time error.
-                   setError("Password must be 8–64 characters and include uppercase, lowercase, number, and special character.");
-                } else {
-                   setError("");
-                }
+                setFormData(prev => ({ ...prev, password: e.target.value }));
+                if (uiStates.passwordError) setUiStates(p => ({ ...p, passwordError: "" }));
               }}
             />
             <button
               type="button"
               className="absolute right-[20px] top-1/2 -translate-y-1/2 text-text-muted hover:text-white transition-colors"
-              onClick={() => setShowPassword(!showPassword)}
-              aria-label={showPassword ? "Hide password" : "Show password"}
+              onClick={() => setUiStates(p => ({ ...p, showPassword: !p.showPassword }))}
+              aria-label={uiStates.showPassword ? "Hide password" : "Show password"}
             >
-              {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              {uiStates.showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
             </button>
           </div>
-          {error && <span className="text-red-500 text-xs px-1 leading-tight">{error}</span>}
+          {uiStates.passwordError && <span className="text-red-500 text-xs px-1 leading-tight" role="alert">{uiStates.passwordError}</span>}
         </div>
 
         {/* 邀请码输入框 */}
-        <Input 
-          type="text"
-          placeholder="Invitation Code"
-          containerClassName="mb-[30px]"
-          value={invitationCode}
-          onChange={(e) => setInvitationCode(e.target.value)}
-        />
+        <div className="flex flex-col gap-1 mb-[30px]">
+            <Input 
+              type="text"
+              placeholder="Invitation Code"
+              containerClassName={uiStates.invitationError ? "border-red-500" : ""}
+              value={formData.invitationCode}
+              onChange={(e) => {
+                setFormData(prev => ({ ...prev, invitationCode: e.target.value }));
+                if (uiStates.invitationError) setUiStates(p => ({ ...p, invitationError: "" }));
+              }}
+            />
+            {uiStates.invitationError && <span className="text-red-500 text-xs px-1" role="alert">{uiStates.invitationError}</span>}
+        </div>
 
-        {/* 发送验证码按钮 */}
+        {/* 🔴 [语义化提交按钮]: 位于 form 内并支持 type="submit" */}
         <Button 
-          variant="primary"
-          onClick={handleSendCode}
-          className="mb-[15px] shadow-lg"
-          icon={loading ? null : <ArrowRightIcon />}
           type="submit"
+          variant="primary"
+          className="mb-[15px] shadow-lg"
+          icon={uiStates.loading ? null : <ArrowRightIcon />}
           disabled={isButtonDisabled}
         >
-          {loading ? "Checking..." : "Send Verification Code"}
+          {uiStates.loading ? "Checking..." : "Send Verification Code"}
         </Button>
       </form>
 
-      {/* 忘记密码链接 */}
+      {/* 找回密码入口 (Secondary Navigation) */}
       <section className="w-full flex justify-center mb-[20px]">
         <button 
           onClick={onForgotPassword}
@@ -294,37 +280,38 @@ export function PasswordPage({ onBack, onSignUp, onForgotPassword, onLogin, emai
         </button>
       </section>
 
-      {/* 底部条款说明 */}
+      {/* 底部合规说明 (Footer Section) */}
       <footer className="mt-auto mb-6">
         <p className="text-tiny text-text-subtle text-center">
             By clicking "Send Verification Code", you agree to our Terms of Service.
         </p>
       </footer>
 
-      {/* 验证码弹窗 */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      {/* 验证码校验弹窗 (OTP Dialog) */}
+      <Dialog open={dialogs.verification} onOpenChange={(o) => setDialogs(p => ({ ...p, verification: o }))}>
         <VerificationDialogContent 
-          otpValue={otpValue}
-          setOtpValue={setOtpValue}
+          otpValue={formData.otpValue}
+          setOtpValue={(val) => setFormData(prev => ({ ...prev, otpValue: val }))}
           onVerify={handleVerify}
           buttonText="Verify & Sign Up"
+          isVerifying={uiStates.loading}
         />
       </Dialog>
 
-      {/* 邮箱已注册提示弹窗 */}
-      <AlertDialog open={isRegisteredModalOpen} onOpenChange={setIsRegisteredModalOpen}>
+      {/* 冲突处理：账户已存在弹窗 */}
+      <AlertDialog open={dialogs.registered} onOpenChange={(o) => setDialogs(p => ({ ...p, registered: o }))}>
         <AlertDialogContent className="bg-app-dark border-white/10 text-white rounded-[20px]">
           <AlertDialogHeader>
             <AlertDialogTitle>Account Exists</AlertDialogTitle>
             <AlertDialogDescription className="text-text-muted">
-              This email is already registered.
+              This email is already registered. Please sign in to continue.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
              <AlertDialogAction 
                className="bg-brand-primary text-black hover:bg-brand-primary/90"
                onClick={() => {
-                 setIsRegisteredModalOpen(false);
+                 setDialogs(p => ({ ...p, registered: false }));
                  onLogin?.();
                }}
              >

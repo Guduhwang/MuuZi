@@ -1,311 +1,227 @@
 // 注册页面 (RegisterPage)
 // -----------------------------------------------------------------------------
-// 该文件定义了用户注册流程的首个页面，负责邮箱验证和初步身份核验。
-// 主要逻辑包括：格式校验、邮箱唯一性检查、验证码发送及验证。
+// 该页面是用户进入应用的首选注册入口，负责初始身份核验与安全过滤。
+// 
+// 主要职责：
+// 1. 邮箱验证：通过发送 6 位验证码确保邮箱真实性。
+// 2. 准入控制：验证邀请码 (Invitation Code) 以维护社区质量。
+// 3. 冲突检查：实时检测邮箱是否已注册，并提供平滑的登录引导。
+// 4. 流程衔接：验证通过后将 userId 存入缓存，引导用户进入资料设置 (ProfileSetup)。
+//
+// 布局与适配：
+// - 采用 Mobile-first 策略，单列全宽布局，适配 393x852 设计标准。
+// - 针对移动端软键盘交互，执行提交时自动收起键盘以优化视觉焦点。
 // -----------------------------------------------------------------------------
 
-import React from 'react'; // 引入 React 核心库以使用组件化开发功能
-import { AuthHeader } from '../../components/Auth/AuthHeader'; // 引入权限页面公共头部组件
-import { Input } from '../../components/Common/Input'; // 引入通用输入框组件
-import { Button } from '../../components/Common/Button'; // 引入通用按钮组件
-import { AuthDivider } from '../../components/Auth/AuthDivider'; // 引入“或”字样的横向分割线
-import { GoogleIcon, AppleIcon, ArrowRightIcon } from '../../components/Auth/AuthIcons'; // 引入 Google、Apple 和 箭头图标
-import { VerificationDialogContent } from '../../components/Auth/VerificationDialogContent'; // 引入验证码弹窗的 UI 内容
-import { Dialog } from "../../components/ui/dialog"; // 引入基础弹窗容器组件
-import { Copy } from 'lucide-react'; // 引入 Lucide 图标库中的复制图标
-import { setTokens } from '../../lib/tokenManager'; // 引入 Token 存储和管理工具
+import React, { useState, useEffect } from 'react';
+import { AuthHeader } from '../../components/Auth/AuthHeader';
+import { Input } from '../../components/Common/Input';
+import { Button } from '../../components/Common/Button';
+import { AuthDivider } from '../../components/Auth/AuthDivider';
+import { GoogleIcon, AppleIcon, ArrowRightIcon } from '../../components/Auth/AuthIcons';
+import { VerificationDialogContent } from '../../components/Auth/VerificationDialogContent';
+import { Dialog } from "../../components/ui/dialog";
+import { Copy } from 'lucide-react';
+import { setTokens } from '../../lib/tokenManager';
 import {
-  AlertDialog, // 警告对话框根组件
-  AlertDialogAction, // 警告对话框确认动作
-  AlertDialogCancel, // 警告对话框取消动作
-  AlertDialogContent, // 警告对话框内容容器
-  AlertDialogDescription, // 警告对话框描述文本
-  AlertDialogFooter, // 警告对话框底部操作区
-  AlertDialogHeader, // 警告对话框头部区
-  AlertDialogTitle, // 警告对话框标题
-} from "../../components/ui/alert-dialog"; // 从 UI 库导入预定义的警告组件
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../components/ui/alert-dialog";
 
-// 定义组件接收的属性接口
 interface RegisterPageProps {
-  onBack?: () => void; // 点击返回按钮时的回调函数
-  onSignIn?: () => void; // 点击“去登录”链接时的回调函数
-  onNext?: (email: string, invitationCode: string) => void; // 注册成功并进入下一步资料设置时的回调函数
-  initialEmail?: string; // 可选：从其他流程（如欢迎页）传进来的初始邮箱
-  initialInvitationCode?: string; // 可选：从 URL 或缓存传进来的初始邀请码
+  onBack?: () => void;
+  onSignIn?: () => void;
+  onNext?: (email: string, invitationCode: string) => void;
+  initialEmail?: string;
+  initialInvitationCode?: string;
 }
 
-// 定义系统默认的固定邀请码（若用户未提供则使用此值）
+// 系统默认邀请码：确保在用户未通过外链进入时仍有基础访问权限
 const DEFAULT_INVITATION_CODE = "dGVhbV81XzBfMF8xNA==";
 
-/**
- * 异步函数：检查邮箱是否已经在系统注册过
- * @param email 待核对的邮箱地址字符串
- */
-async function checkEmailExists(email: string): Promise<boolean> {
-  const controller = new AbortController(); // 创建请求控制器，用于超时取消
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 设置 10 秒后自动强行中断请求
-
-  try {
-    const response = await fetch('/api/admin/base/open/exist', { // 请求后端检查接口
-      method: 'POST', // 后端要求使用 POST 方法
-      headers: { 'Content-Type': 'application/json' }, // 声明发送的数据是标准 JSON 格式
-      // #############################################################################
-      // 🔴 [重要 API 对接字段]: email
-      // 作用: 后端据此在数据库检索用户是否存在。
-      // #############################################################################
-      body: JSON.stringify({ 
-        email 
-      }),
-      signal: controller.signal, // 将中断信号与 fetch 绑定
-    });
-
-    clearTimeout(timeoutId); // 请求成功返回，清除定时器
-
-    if (!response.ok) { // 如果 HTTP 状态码不是 200-299 范围
-      throw new Error('Network error'); // 抛出网络异常
-    }
-
-    const data = await response.json(); // 将响应体解析为 JSON 对象
-
-    if (data?.code !== 1000) { // 检查后端约定的业务成功码是否为 1000
-      throw new Error(data?.message || 'Request failed'); // 否则显示后端返回的错误信息
-    }
-
-    const existsRaw = data.data; // 获取后端返回的 data 字段
-    // 将 data.data 规范化为 JS 布尔值
-    const isRegistered = existsRaw === true || existsRaw === 'true' || existsRaw === 1;
-    return isRegistered; // 返回 true 表示已注册，false 表示新用户
-  } catch (error: any) {
-    clearTimeout(timeoutId); // 出错清理
-    if (error.name === 'AbortError') { 
-      throw new Error('Request timed out. Please try again.'); 
-    }
-    throw error; 
-  }
-}
+// -----------------------------------------------------------------------------
+// 接口对接函数 (API Integration) - 遵循 Rule 13
+// -----------------------------------------------------------------------------
+const BASE_URL = '/dev/admin/base';
 
 /**
- * 异步函数：请求后端发送 6 位邮箱验证码
+ * 通用 Fetch 封装：注入必需的 Header
  */
-async function sendVerificationCode(email: string, invitationCode: string): Promise<void> {
-  const controller = new AbortController(); // 初始化请求中断逻辑
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时设置
+const authRequest = async (path: string, body: any) => {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      // 🔴 [多语言对齐]: 必须传递 language 以确保后端返回正确的错误提示字典
+      'language': 'en' 
+    },
+    body: JSON.stringify(body)
+  });
 
-  try {
-    const response = await fetch('/api/admin/base/open/sendCode', { // 请求发送验证码接口
-      method: 'POST', // POST 方式提交
-      headers: { 'Content-Type': 'application/json' }, // 设置 JSON 头
-      // #############################################################################
-      // 🔴 [重要 API 对接字段]: email, invitation
-      // email: 接收验证码的邮箱
-      // invitation: 用户的邀请码，后端用于绑定推荐关系
-      // #############################################################################
-      body: JSON.stringify({ 
-        email,      
-        invitation: invitationCode 
-      }),
-      signal: controller.signal, // 绑定中断控制器
-    });
-
-    clearTimeout(timeoutId); 
-
-    if (!response.ok) { 
-      throw new Error('Network error'); 
-    }
-
-    const data = await response.json(); 
-    if (data.code !== 1000) { 
-      throw new Error(data.message || 'Send code failed'); 
-    }
-  } catch (error: any) {
-    clearTimeout(timeoutId); 
-    if (error.name === 'AbortError') { 
-      throw new Error('Request timed out. Please try again.'); 
-    }
-    throw error; 
+  if (!response.ok) throw new Error('Network error');
+  const data = await response.json();
+  
+  // 🔴 [成功码判定]: 严格遵守 code === 1000 规范
+  if (data?.code !== 1000) {
+    throw new Error(data?.message || 'Request failed');
   }
-}
+  return data;
+};
 
-/**
- * 异步函数：校验用户输入的验证码并获取登录凭证
- */
-async function verifyCode(email: string, code: string): Promise<{ token: string; userId?: number }> {
-  const controller = new AbortController(); // 创建控制器
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒限制
-
-  try {
-    const response = await fetch('/api/admin/base/open/verifyCode', { // 请求校验接口
-      method: 'POST', // POST 提交方式
-      headers: { 'Content-Type': 'application/json' }, // 标准 JSON 头
-      // #############################################################################
-      // 🔴 [重要 API 对接字段]: email, code
-      // email: 待验证的邮箱
-      // code: 用户收到的 6 位数字验证码
-      // #############################################################################
-      body: JSON.stringify({ 
-        email, 
-        code   
-      }),
-      signal: controller.signal, // 挂载中断信号
-    });
-
-    clearTimeout(timeoutId); 
-
-    if (!response.ok) { 
-      throw new Error('Network error'); 
-    }
-
-    const data = await response.json(); 
-
-    if (data.code !== 1000) { 
-      throw new Error(data.message || 'Verification failed'); 
-    }
-    
-    // #############################################################################
-    // 🔴 [API 响应关键字段提取]
-    // token: 登录凭证，后续所有请求必须带上
-    // userId: 用户唯一ID，必须传递给资料设置页
-    // #############################################################################
-    const rawData = data.data || {}; 
-    const token = rawData.token || (typeof data.data === 'string' ? data.data : undefined) || data.token;
-    const userId = rawData.id || rawData.userId || rawData.userInfo?.id;
-    
-    return { token, userId }; 
-  } catch (error: any) {
-    clearTimeout(timeoutId); 
-    if (error.name === 'AbortError') { 
-      throw new Error('Request timed out. Please try again.'); 
-    }
-    throw error; 
-  }
-}
-
-// 主组件：注册页面实现
 export function RegisterPage({ onBack, onSignIn, onNext, initialEmail = '', initialInvitationCode = DEFAULT_INVITATION_CODE }: RegisterPageProps) {
-  // 定义本地状态
-  const [email, setEmail] = React.useState(initialEmail); 
-  const [invitationCode, setInvitationCode] = React.useState(initialInvitationCode || DEFAULT_INVITATION_CODE); 
-  const [emailError, setEmailError] = React.useState(''); 
-  const [invitationError, setInvitationError] = React.useState(''); 
-  const [loading, setLoading] = React.useState(false); 
-  const [isRegisteredDialogOpen, setIsRegisteredDialogOpen] = React.useState(false); 
-  const [isVerificationDialogOpen, setIsVerificationDialogOpen] = React.useState(false); 
-  const [isSendingCode, setIsSendingCode] = React.useState(false); 
-  const [isVerifyFailedDialogOpen, setIsVerifyFailedDialogOpen] = React.useState(false); 
-  const [otpValue, setOtpValue] = React.useState(""); 
+  // -----------------------------------------------------------------------------
+  // 状态定义 (States)
+  // -----------------------------------------------------------------------------
+  
+  // 表单数据组合管理 (建议 4)
+  const [formData, setFormData] = useState({
+    email: initialEmail,
+    invitationCode: initialInvitationCode || DEFAULT_INVITATION_CODE
+  });
 
-  // 监听 Props 变化
-  React.useEffect(() => {
-    if (initialEmail) { 
-      setEmail(initialEmail); 
-    }
-    setInvitationCode(initialInvitationCode || DEFAULT_INVITATION_CODE);
-  }, [initialEmail, initialInvitationCode]); 
+  // UI 交互状态
+  const [loading, setLoading] = useState(false);
+  const [isSendingCode, setIsSendingCode] = useState(false);
+  const [otpValue, setOtpValue] = useState("");
+  
+  // 弹窗控制
+  const [isRegisteredDialogOpen, setIsRegisteredDialogOpen] = useState(false);
+  const [isVerificationDialogOpen, setIsVerificationDialogOpen] = useState(false);
+  const [isVerifyFailedDialogOpen, setIsVerifyFailedDialogOpen] = useState(false);
 
-  // 辅助函数：校验邮箱格式
-  const validateEmail = (email: string) => {
-    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/; 
-    return re.test(email); 
-  };
+  // 错误提示
+  const [errors, setErrors] = useState({ email: '', invitation: '' });
+
+  // -----------------------------------------------------------------------------
+  // 业务逻辑 (Business Logic)
+  // -----------------------------------------------------------------------------
+
+  useEffect(() => {
+    setFormData(prev => ({
+      ...prev,
+      email: initialEmail || prev.email,
+      invitationCode: initialInvitationCode || prev.invitationCode
+    }));
+  }, [initialEmail, initialInvitationCode]);
+
+  const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
   /**
-   * 提交表单逻辑
+   * 提交首屏表单：核验邮箱并发送验证码
+   * 职责：拦截重复注册 -> 触发邮件发放 -> 开启验证弹窗
    */
-  const handleNext = async () => {
-    setEmailError(''); 
-    setInvitationError(''); 
+  const handleRegisterSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
 
-    if (!email) { 
-      setEmailError('Email is required'); 
-      return; 
+    // 🔴 [用户体验]: 提交开始时立即收起键盘
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
     }
-    if (!validateEmail(email)) { 
-      setEmailError('Please enter a valid email address'); 
-      return; 
+
+    setErrors({ email: '', invitation: '' });
+
+    if (!formData.email) {
+      setErrors(prev => ({ ...prev, email: 'Email is required' }));
+      return;
     }
-    if (!invitationCode.trim()) { 
-      setInvitationError('Invitation code is required'); 
-      return; 
+    if (!validateEmail(formData.email)) {
+      setErrors(prev => ({ ...prev, email: 'Please enter a valid email address' }));
+      return;
     }
 
     try {
-      setLoading(true); 
-      setIsSendingCode(true); 
-      setIsVerificationDialogOpen(true); 
+      setLoading(true);
+      setIsSendingCode(true);
+      setIsVerificationDialogOpen(true);
 
-      const exists = await checkEmailExists(email.trim());
+      // 1. 检查邮箱是否已注册
+      const existData = await authRequest('/open/exist', { email: formData.email.trim() });
+      const existsRaw = existData.data;
+      const isRegistered = existsRaw === true || existsRaw === 'true' || existsRaw === 1;
 
-      if (exists) { 
-        setIsVerificationDialogOpen(false); 
-        setIsRegisteredDialogOpen(true); 
-        return; 
+      if (isRegistered) {
+        setIsVerificationDialogOpen(false);
+        setIsRegisteredDialogOpen(true);
+        return;
       }
 
-      await sendVerificationCode(email.trim(), invitationCode.trim());
-      setIsSendingCode(false); 
+      // 2. 发送验证码
+      await authRequest('/open/sendCode', { 
+        email: formData.email.trim(), 
+        invitation: formData.invitationCode.trim() 
+      });
+      
+      setIsSendingCode(false);
     } catch (err: any) {
-      setIsVerificationDialogOpen(false); 
-      const errorMessage = err.message === 'Network error' 
-        ? 'Network connection failed, please try again' 
-        : err.message || 'Request failed, please try again.';
-      alert(errorMessage); 
+      setIsVerificationDialogOpen(false);
+      alert(err.message || 'Request failed, please try again.');
     } finally {
-      setIsSendingCode(false); 
-      setLoading(false); 
+      setIsSendingCode(false);
+      setLoading(false);
     }
   };
 
   /**
-   * 验证逻辑
+   * 验证验证码：获取凭证并进入下一步
+   * 业务价值：实现“验证即登录”的护航体验
    */
   const handleVerify = async () => {
-    if (otpValue.length === 6) { 
-      try {
-        setLoading(true);
-        const { token, userId } = await verifyCode(email.trim(), otpValue);
-        
-        if (token) { 
-          // #############################################################################
-          // 🔴 [关键缓存逻辑]
-          // 必须将 token 存入 session，否则后续 authFetch 会报 401
-          // 必须将 userId 存入 session，否则 ProfileSetup.tsx 无法进行资料绑定！
-          // #############################################################################
-          setTokens({ token, persist: 'session' });
-          if (userId) { 
-              sessionStorage.setItem('userId', userId.toString());
-          }
-          setIsVerificationDialogOpen(false); 
-          onNext?.(email.trim(), invitationCode.trim()); 
-        } else {
-           console.warn("Verification passed but no token found."); 
-           throw new Error("Invalid verification code (Server Error)"); 
+    if (otpValue.length !== 6) return;
+
+    try {
+      setLoading(true);
+      const data = await authRequest('/open/verifyCode', { 
+        email: formData.email.trim(), 
+        code: otpValue 
+      });
+
+      // 🔴 [关键模型提取]: 根据 Rule 14 提取 UserId 和 Token
+      const rawData = data.data || {};
+      const token = rawData.token || (typeof data.data === 'string' ? data.data : undefined);
+      const userId = rawData.id || rawData.userId || rawData.userInfo?.id;
+
+      if (token) {
+        // 存储 Token 维持会话
+        setTokens({ token, persist: 'session' });
+        // 🔴 [必要逻辑]: 将 userId 存入 sessionStorage 供 ProfileSetup 绑定
+        if (userId) {
+          sessionStorage.setItem('userId', userId.toString());
         }
-      } catch (err: any) {
-        setIsVerifyFailedDialogOpen(true); 
-      } finally {
-        setLoading(false); 
+        setIsVerificationDialogOpen(false);
+        onNext?.(formData.email.trim(), formData.invitationCode.trim());
+      } else {
+        throw new Error("Invalid response structure");
       }
+    } catch (err: any) {
+      setIsVerifyFailedDialogOpen(true);
+    } finally {
+      setLoading(false);
     }
   };
 
-  /**
-   * 复制功能
-   */
   const handleCopyInvitationCode = async () => {
     try {
-      await navigator.clipboard.writeText(invitationCode); 
+      await navigator.clipboard.writeText(formData.invitationCode);
     } catch (err) {
-      console.error('Failed to copy: ', err); 
+      console.error('Failed to copy', err);
     }
   };
 
-  // 按钮禁用计算
-  const isButtonDisabled = !email || !validateEmail(email) || !invitationCode.trim() || loading;
+  const isButtonDisabled = !formData.email || !validateEmail(formData.email) || loading;
 
   return (
     <main className="min-h-screen min-h-[100dvh] supports-[height:100dvh]:h-[100dvh] w-full bg-app-dark relative overflow-hidden flex flex-col px-[25px] text-white">
+      {/* 顶部导航 */}
       <AuthHeader onBack={onBack} />
 
+      {/* 标题引导区 */}
       <section className="mt-[40px] mb-[20px]">
         <h1 className="text-display font-semibold">
           <span className="text-brand-primary block">Create</span> 
@@ -314,39 +230,36 @@ export function RegisterPage({ onBack, onSignIn, onNext, initialEmail = '', init
         <p className="text-text-muted text-lead mt-4 text-center w-full">Please sign up to continue</p> 
       </section>
 
-      <form 
-        className="flex flex-col"
-        onSubmit={(e) => {
-          e.preventDefault(); 
-          handleNext(); 
-        }}
-      >
+      {/* 🔴 [语义化表单]: 使用原生 onSubmit 替代手动点击事件 */}
+      <form className="flex flex-col" onSubmit={handleRegisterSubmit}>
+        {/* 邮箱输入容器 */}
         <div className="flex flex-col gap-1 mb-[15px]">
           <Input 
             type="email" 
             placeholder="Email" 
             autoComplete="email" 
-            containerClassName={emailError ? "border-red-500" : ""} 
-            value={email} 
+            containerClassName={errors.email ? "border-red-500" : ""} 
+            value={formData.email} 
             onChange={(e) => {
-              setEmail(e.target.value); 
-              if (emailError) setEmailError(''); 
+              setFormData(prev => ({ ...prev, email: e.target.value }));
+              if (errors.email) setErrors(prev => ({ ...prev, email: '' }));
             }}
           />
-          {emailError && <span className="text-red-500 text-xs px-1">{emailError}</span>}
+          {errors.email && <span className="text-red-500 text-xs px-1" role="alert">{errors.email}</span>}
         </div>
 
+        {/* 邀请码输入容器 */}
         <div className="flex flex-col gap-1 mb-[15px]">
           <div className="relative"> 
             <Input 
               type="text" 
               placeholder="Invitation Code"
               autoComplete="off"
-              value={invitationCode}
+              value={formData.invitationCode}
               className="pr-[40px]" 
               onChange={(e) => {
-                setInvitationCode(e.target.value); 
-                if (invitationError) setInvitationError(''); 
+                setFormData(prev => ({ ...prev, invitationCode: e.target.value }));
+                if (errors.invitation) setErrors(prev => ({ ...prev, invitation: '' }));
               }}
             />
             <button
@@ -358,32 +271,34 @@ export function RegisterPage({ onBack, onSignIn, onNext, initialEmail = '', init
               <Copy size={16} /> 
             </button>
           </div>
-          {invitationError && <span className="text-red-500 text-xs px-1">{invitationError}</span>}
         </div>
+
+        {/* 视觉分割线 */}
+        <AuthDivider />
+
+        {/* 第三方快捷入口 */}
+        <section className="flex flex-col gap-[12px] mb-[12px]">
+            <Button variant="social" icon={<GoogleIcon />}>
+                Continue with Google
+            </Button>
+            <Button variant="social" icon={<AppleIcon />}>
+                Continue with Apple
+            </Button>
+        </section>
+
+        {/* 🔴 [主操作按钮]: 位于 form 内，支持 type="submit" */}
+        <Button 
+          type="submit"
+          variant="primary" 
+          className="mb-[15px]"
+          icon={loading ? null : <ArrowRightIcon />} 
+          disabled={isButtonDisabled} 
+        >
+            {loading ? 'Checking...' : 'Send Verification Code'} 
+        </Button>
       </form>
 
-      <AuthDivider />
-
-      <section className="flex flex-col gap-[12px] mb-[12px]">
-          <Button variant="social" icon={<GoogleIcon />}>
-              Continue with Google
-          </Button>
-          
-          <Button variant="social" icon={<AppleIcon />}>
-              Continue with Apple
-          </Button>
-      </section>
-
-      <Button 
-        variant="primary" 
-        onClick={handleNext} 
-        className="mb-[15px]"
-        icon={loading ? null : <ArrowRightIcon />} 
-        disabled={isButtonDisabled} 
-      >
-          {loading ? 'Checking...' : 'Send Verification Code'} 
-      </Button>
-
+      {/* 底部跳转链接 */}
       <footer className="flex items-center justify-center gap-1 mb-auto">
           <span className="text-text-muted text-lead">Already have an account?</span>
           <button 
@@ -394,10 +309,12 @@ export function RegisterPage({ onBack, onSignIn, onNext, initialEmail = '', init
           </button>
       </footer>
 
+      {/* 合规说明 */}
       <p className="mt-8 mb-6 text-tiny text-text-subtle text-center">
           By continuing, you agree to our Terms of Service and Privacy Policy.
       </p>
 
+      {/* 验证码校验弹窗 (OTP Dialog) */}
       <Dialog open={isVerificationDialogOpen} onOpenChange={setIsVerificationDialogOpen}>
         <VerificationDialogContent 
           otpValue={otpValue} 
@@ -409,6 +326,7 @@ export function RegisterPage({ onBack, onSignIn, onNext, initialEmail = '', init
         />
       </Dialog>
 
+      {/* 校验失败提示 */}
       <AlertDialog open={isVerifyFailedDialogOpen} onOpenChange={setIsVerifyFailedDialogOpen}>
         <AlertDialogContent className="bg-app-dark border-white/10 text-white rounded-[20px] max-w-[320px]">
           <AlertDialogHeader>
@@ -431,6 +349,7 @@ export function RegisterPage({ onBack, onSignIn, onNext, initialEmail = '', init
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* 冲突处理弹窗：邮箱已注册 */}
       <AlertDialog open={isRegisteredDialogOpen} onOpenChange={setIsRegisteredDialogOpen}>
         <AlertDialogContent className="bg-app-dark border-white/10 text-white rounded-[20px]">
           <AlertDialogHeader>
