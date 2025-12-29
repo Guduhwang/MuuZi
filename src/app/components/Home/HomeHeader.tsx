@@ -7,7 +7,11 @@ import imgAvatarDefault from "figma:asset/cca52c1ba2653720b531334ad6385e8d699abc
 import { authFetch, getValidAccessToken } from "../../lib/tokenManager";
 import { normalizeAvatarUrl } from "../ui/utils";
 
-export function HomeHeader() {
+interface HomeHeaderProps {
+  onAvatarClick?: () => void;
+}
+
+export function HomeHeader({ onAvatarClick }: HomeHeaderProps) {
   const [userInfo, setUserInfo] = useState({
     nickName: "MuuZi User", // 默认昵称
     avatar: imgAvatarDefault
@@ -70,20 +74,27 @@ export function HomeHeader() {
     <header className="fixed top-0 left-0 z-50 w-full h-[120px] bg-app-dark rounded-b-[32px] shadow-[0_5px_20px_rgba(0,0,0,0.3)] flex items-center justify-between px-[20px] pt-[60px] pb-[20px]">
       {/* 左侧：头像与欢迎语 */}
       <div className="flex items-center gap-4">
-        <Avatar className="size-[40px] border-2 border-white/10">
-          <AvatarImage 
-            src={userInfo.avatar} 
-            alt={userInfo.nickName} 
-            className="object-cover"
-            onError={(e) => {
-                // 如果图片加载失败，回退到默认
-                e.currentTarget.src = imgAvatarDefault;
-            }}
-          />
-          <AvatarFallback className="bg-gray-700 text-white">
-              {userInfo.nickName.charAt(0).toUpperCase()}
-          </AvatarFallback>
-        </Avatar>
+        <button
+          type="button"
+          onClick={onAvatarClick}
+          className="cursor-pointer active:scale-95 transition-transform"
+          aria-label="Open profile"
+        >
+          <Avatar className="size-[40px] border-2 border-white/10">
+            <AvatarImage 
+              src={userInfo.avatar} 
+              alt={userInfo.nickName} 
+              className="object-cover"
+              onError={(e) => {
+                  // 如果图片加载失败，回退到默认
+                  e.currentTarget.src = imgAvatarDefault;
+              }}
+            />
+            <AvatarFallback className="bg-gray-700 text-white">
+                {userInfo.nickName.charAt(0).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+        </button>
         <div className="flex flex-col">
           <span className="text-text-muted text-[14px] leading-none mb-1">{greeting}</span>
           <span className="font-semibold text-[18px] leading-none text-white">{userInfo.nickName}</span>

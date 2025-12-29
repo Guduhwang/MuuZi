@@ -16,12 +16,13 @@ import { GroupCardPage } from "./pages/Home/GroupCard";
 import { ActivityPage } from "./pages/Home/Activity";
 import { MuuZiPage } from "./pages/Home/Events";
 import { GroupDetailsPage } from "./pages/Home/GroupDetails";
+import { UserProfilePage } from "./pages/Home/UserProfilePage";
 import { Group } from "./components/Group/GroupCard";
 import { HomeHeader } from "./components/Home/HomeHeader";
 import { HomeBottomNavigation, TabId } from "./components/Home/HomeBottomNavigation";
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<'welcome' | 'login' | 'register' | 'password' | 'forgot-password' | 'profile-setup' | 'know-people' | 'home' | 'group-chat' | 'chat-list' | 'detail-message' | 'group-card-page' | 'activity' | 'profile-details' | 'events'>('welcome');
+  const [currentPage, setCurrentPage] = useState<'welcome' | 'login' | 'register' | 'password' | 'forgot-password' | 'profile-setup' | 'know-people' | 'home' | 'group-chat' | 'chat-list' | 'detail-message' | 'group-card-page' | 'activity' | 'profile-details' | 'user-profile' | 'events'>('welcome');
   const [selectedChatUser, setSelectedChatUser] = useState<AvailableUser | ChatUser | undefined>(undefined);
   const [selectedGroup, setSelectedGroup] = useState<Group | undefined>(undefined);
   const [slideDirection, setSlideDirection] = useState<'left' | 'right'>('right');
@@ -120,7 +121,17 @@ export default function App() {
       </AnimatePresence>
       
       {/* 共享布局：Header */}
-      {showSharedLayout && <HomeHeader />}
+      {showSharedLayout && (
+        <HomeHeader 
+          onAvatarClick={() => {
+            // 保存当前页面状态，以便返回时能正确恢复
+            if (['home', 'events', 'activity'].includes(currentPage)) {
+              setPreviousTab(currentPage as 'home' | 'events' | 'activity');
+            }
+            setCurrentPage('user-profile');
+          }} 
+        />
+      )}
 
       {/* Home Page Flow */}
       {['home', 'group-chat', 'chat-list', 'detail-message', 'events', 'activity'].includes(currentPage) && (
@@ -256,6 +267,19 @@ export default function App() {
         {currentPage === 'profile-details' && (
           <GroupDetailsPage 
             onBack={() => setCurrentPage('group-card-page')}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* User Profile Page */}
+      <AnimatePresence>
+        {currentPage === 'user-profile' && (
+          <UserProfilePage 
+            onBack={() => {
+              // 返回到之前的页面，如果没有则返回 home
+              const returnTo = previousTab || 'home';
+              setCurrentPage(returnTo);
+            }}
           />
         )}
       </AnimatePresence>
