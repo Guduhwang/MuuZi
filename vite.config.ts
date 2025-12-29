@@ -28,6 +28,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/dev': {
+        target: 'https://guduu.co',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/dev/, '/api'),
+      },
     },
   },
 })
